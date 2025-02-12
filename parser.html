@@ -1,0 +1,1777 @@
+<link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&amp;family=Roboto:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<script>let editPopup = null;
+let currentEditItem = null;
+let currentTheme = 'light';
+let currentTemplateMode = null;
+let originalParsedContent = '';
+let templateCounter = 0;
+let trackingKeywords = JSON.parse(localStorage.getItem('trackingKeywords')) || ['(AMZL)', '(AMZN)'];
+let templates = JSON.parse(localStorage.getItem('templates')) || [{
+  text: "We've reviewed our removal orders and discovered some shipments whose delivery status is unclear. Could you please check on your end? We're unable to verify the tracking status. If they were lost in transit, could you kindly issue a reimbursement",
+  active: true
+}];
+let autoParse = localStorage.getItem('autoParse') === 'true' || false;
+let autoTemplate = localStorage.getItem('autoTemplate') === 'true' || false;
+let autoTemplateCopy = localStorage.getItem('autoTemplateCopy') === 'true' || false;
+let customTemplateInterval = 2;
+let autoTracking = localStorage.getItem('autoTracking') === 'true' || false;
+function setThemeColor(color) {
+  let primaryColor = color;
+  let secondaryColor = color;
+  const darkerColor = adjustColor(primaryColor, -20);
+  const lighterColor = adjustColor(primaryColor, 10);
+  document.documentElement.style.setProperty('--theme-primary', primaryColor);
+  document.documentElement.style.setProperty('--theme-secondary', secondaryColor);
+  document.documentElement.style.setProperty('--theme-darker', darkerColor);
+  document.documentElement.style.setProperty('--theme-surface', `color-mix(in srgb, ${primaryColor} 8%, var(--bg-secondary))`);
+  document.documentElement.style.setProperty('--theme-surface-variant', `color-mix(in srgb, ${darkerColor} 12%, var(--bg-secondary))`);
+  if (!document.documentElement.classList.contains('dark')) {
+    document.body.style.backgroundColor = `color-mix(in srgb, ${primaryColor} 5%, var(--bg-secondary))`;
+  }
+  const colorOptions = document.querySelectorAll('.color-option');
+  colorOptions.forEach(option => {
+    option.classList.toggle('active', option.dataset.color === color);
+  });
+}
+function adjustColor(color, percent) {
+  const num = parseInt(color.replace('#', ''), 16);
+  const amt = Math.round(2.55 * percent);
+  const R = (num >> 16) + amt;
+  const G = (num >> 8 & 0x00FF) + amt;
+  const B = (num & 0x0000FF) + amt;
+  return '#' + (0x1000000 + (R < 255 ? R < 1 ? 0 : R : 255) * 0x10000 + (G < 255 ? G < 1 ? 0 : G : 255) * 0x100 + (B < 255 ? B < 1 ? 0 : B : 255)).toString(16).slice(1);
+}
+function addKeyword() {
+  const input = document.getElementById('keywordInput');
+  const keyword = input.value.trim();
+  if (keyword && !trackingKeywords.includes(keyword)) {
+    trackingKeywords.push(keyword);
+    localStorage.setItem('trackingKeywords', JSON.stringify(trackingKeywords));
+    updateKeywordsList();
+    input.value = '';
+  }
+}
+function removeKeyword(keyword) {
+  const index = trackingKeywords.indexOf(keyword);
+  if (index > -1) {
+    trackingKeywords.splice(index, 1);
+    localStorage.setItem('trackingKeywords', JSON.stringify(trackingKeywords));
+    updateKeywordsList();
+  }
+}
+function updateKeywordsList() {
+  const container = document.getElementById('keywordsList');
+  container.innerHTML = '';
+  trackingKeywords.forEach(keyword => {
+    const item = document.createElement('div');
+    item.className = 'keyword-item';
+    item.innerHTML = `
+                    <span class="keyword-text">${keyword}</span>
+                    <div class="item-actions">
+                        <button onclick="editKeyword('${keyword}')">
+                            <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+                        </button>
+                        <button onclick="removeKeyword('${keyword}')">
+                            <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                        </button>
+                    </div>
+                `;
+    container.appendChild(item);
+  });
+}
+function editKeyword(oldKeyword) {
+  initEditPopup();
+  currentEditItem = {
+    type: 'keyword',
+    value: oldKeyword
+  };
+  document.getElementById('editInput').value = oldKeyword;
+  editPopup.classList.add('open');
+}
+function parseShipmentData() {
+  const input = document.getElementById('shipmentInput').value;
+  const outputContainer = document.getElementById('output');
+  const copyButton = document.getElementById('copyButton');
+  const clearButton = document.querySelector('button[onclick="clearData()"]');
+  const templateButton1 = document.querySelector('button[onclick="toggleTemplateToAll()"]');
+  const templateButton2 = document.querySelector('button[onclick="toggleTemplateEveryTwo()"]');
+  clearButton.disabled = !input.trim();
+  outputContainer.innerHTML = '';
+  copyButton.style.display = 'block';
+  currentTemplateMode = null;
+  originalParsedContent = '';
+  templateCounter = 0;
+  document.getElementById('templateCount').textContent = '0';
+  copyButton.disabled = true;
+  clearButton.disabled = true;
+  templateButton1.disabled = true;
+  templateButton2.disabled = true;
+  let removalOrderId = '';
+  const removalOrderMatch = input.match(/Removal order ID:\s*([^\n]+)/);
+  if (removalOrderMatch) {
+    removalOrderId = removalOrderMatch[1].trim();
+  }
+  const shipmentSections = input.split(/Shipment ID:/g).filter(section => section.trim() !== '');
+  const allOutputs = [];
+  shipmentSections.forEach(section => {
+    let trackingMatches = [];
+    trackingKeywords.forEach(keyword => {
+      const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const matches = section.match(new RegExp(`[A-Z0-9]+${escapedKeyword}`, 'g')) || [];
+      trackingMatches = trackingMatches.concat(matches);
+    });
+    if (!trackingMatches || trackingMatches.length === 0) return;
+    const trackingNumbers = trackingMatches.join(', ');
+    const productLines = section.split('\n').filter(line => line.includes('Merchant SKU') || line.includes('FNSKU:') || line.includes('EAN:') || line.includes('UPC:') || line.includes('Condition:') || line.trim().match(/^\d{1,4}$/));
+    const parsedProducts = [];
+    let currentProduct = {};
+    let lastKeywordSeen = null;
+    for (let i = 0; i < productLines.length; i++) {
+      const line = productLines[i].trim();
+      if (line.startsWith('Merchant SKU:')) {
+        if (currentProduct.merchantSku) {
+          parsedProducts.push(currentProduct);
+        }
+        currentProduct = {
+          merchantSku: line.split('Merchant SKU:')[1].trim()
+        };
+        lastKeywordSeen = null;
+      }
+      if (line.startsWith('FNSKU:')) {
+        currentProduct.fnsku = line.split('FNSKU:')[1].trim();
+      }
+      if (line.startsWith('EAN:') || line.startsWith('UPC:') || line.startsWith('Condition:')) {
+        lastKeywordSeen = line;
+      }
+      if (line.match(/^\d{1,4}$/) && lastKeywordSeen) {
+        currentProduct.qty = parseInt(line);
+        parsedProducts.push(currentProduct);
+        currentProduct = {};
+        lastKeywordSeen = null;
+      }
+    }
+    const outputParts = [`Removal order ID:${removalOrderId}`, `Shipment ID:${section.split('\n')[0].trim()}`, `Tracking Number(s):${trackingNumbers}`];
+    const productOutputs = [];
+    parsedProducts.forEach((p, index) => {
+      const productOutput = [`Merchant SKU:${p.merchantSku}`, `FNSKU:${p.fnsku}`, `Qty:${p.qty}`];
+      productOutputs.push(productOutput.join('\n'));
+      if (index < parsedProducts.length - 1) {
+        productOutputs.push('');
+      }
+    });
+    const outputText = outputParts.concat(productOutputs).join('\n');
+    allOutputs.push(outputText);
+  });
+  if (allOutputs.length > 0) {
+    const finalOutput = allOutputs.join('\n\n');
+    outputContainer.textContent = finalOutput;
+    originalParsedContent = finalOutput;
+    clearButton.disabled = false;
+    templateButton1.disabled = false;
+    templateButton2.disabled = false;
+    copyButton.disabled = templateCounter === 0;
+  } else {
+    outputContainer.textContent = 'No shipments with (AMZL) tracking numbers found.';
+    copyButton.disabled = true;
+    clearButton.disabled = true;
+    templateButton1.disabled = true;
+    templateButton2.disabled = true;
+  }
+  copyButton.textContent = 'Copy';
+}
+function clearData() {
+  document.getElementById('shipmentInput').value = '';
+  const outputContainer = document.getElementById('output');
+  outputContainer.textContent = '';
+  currentTemplateMode = null;
+  originalParsedContent = '';
+  templateCounter = 0;
+  document.getElementById('templateCount').textContent = '0';
+  const copyButton = document.getElementById('copyButton');
+  const clearButton = document.querySelector('button[onclick="clearData()"]');
+  const templateButton1 = document.querySelector('button[onclick="toggleTemplateToAll()"]');
+  const templateButton2 = document.querySelector('button[onclick="toggleTemplateEveryTwo()"]');
+  copyButton.disabled = true;
+  clearButton.disabled = true;
+  templateButton1.disabled = true;
+  templateButton2.disabled = true;
+}
+function copyOutput() {
+  const outputContainer = document.getElementById('output');
+  const tempTextArea = document.createElement('textarea');
+  tempTextArea.value = outputContainer.textContent;
+  document.body.appendChild(tempTextArea);
+  tempTextArea.select();
+  document.execCommand('copy');
+  document.body.removeChild(tempTextArea);
+  const copyButton = document.getElementById('copyButton');
+  copyButton.classList.add('clicked');
+  copyButton.classList.add('copied');
+  copyButton.textContent = 'Copied!';
+  setTimeout(() => {
+    copyButton.classList.remove('clicked');
+  }, 600);
+  setTimeout(() => {
+    copyButton.classList.remove('copied');
+    copyButton.textContent = 'Copy';
+  }, 2000);
+}
+function toggleTheme() {
+  const htmlElement = document.documentElement;
+  const themeToggle = document.getElementById('themeToggle');
+  if (currentTheme === 'light') {
+    htmlElement.classList.add('dark');
+    themeToggle.textContent = '🌙 Dark Mode';
+    currentTheme = 'dark';
+    document.body.style.backgroundColor = '#000000';
+  } else {
+    htmlElement.classList.remove('dark');
+    themeToggle.textContent = '☀️ Light Mode';
+    currentTheme = 'light';
+    const currentColor = getComputedStyle(document.documentElement).getPropertyValue('--theme-primary');
+    document.body.style.backgroundColor = `color-mix(in srgb, ${currentColor} 5%, var(--bg-secondary))`;
+  }
+}
+function toggleThemePicker() {
+  const themePicker = document.querySelector('.theme-picker');
+  themePicker.classList.toggle('open');
+}
+function toggleTemplateToAll() {
+  const outputContainer = document.getElementById('output');
+  const templateCountDisplay = document.getElementById('templateCount');
+  const copyButton = document.getElementById('copyButton');
+  const activeTemplates = templates.filter(t => t.active);
+  if (!activeTemplates.length) {
+    alert('Please add at least one active template in settings');
+    return;
+  }
+  const template = activeTemplates[0].text + '\n\n';
+  if (!originalParsedContent) {
+    originalParsedContent = outputContainer.textContent;
+  }
+  if (currentTemplateMode === 'all') {
+    outputContainer.textContent = originalParsedContent;
+    currentTemplateMode = null;
+    templateCountDisplay.textContent = '0';
+    templateCounter = 0;
+    copyButton.disabled = true;
+    return;
+  }
+  const sections = originalParsedContent.split(/(?=Removal order ID:)/g);
+  templateCounter = 0;
+  const modifiedContent = sections.map(section => {
+    if (section.trim().startsWith('Removal order ID:')) {
+      templateCounter++;
+      return template + section;
+    }
+    return section;
+  }).join('');
+  outputContainer.textContent = modifiedContent;
+  currentTemplateMode = 'all';
+  templateCountDisplay.textContent = templateCounter;
+  copyButton.disabled = templateCounter === 0;
+  if (autoTemplateCopy && templateCounter > 0) {
+    copyOutput();
+  }
+}
+function toggleTemplateEveryTwo() {
+  const outputContainer = document.getElementById('output');
+  const templateCountDisplay = document.getElementById('templateCount');
+  const copyButton = document.getElementById('copyButton');
+  const templateButton = document.querySelector('button[onclick="toggleTemplateEveryTwo()"]');
+  const activeTemplates = templates.filter(t => t.active);
+  if (!activeTemplates.length) {
+    alert('Please add at least one active template in settings');
+    return;
+  }
+  const template = activeTemplates[0].text + '\n\n';
+  if (!originalParsedContent) {
+    originalParsedContent = outputContainer.textContent;
+  }
+  if (currentTemplateMode === 'custom') {
+    outputContainer.textContent = originalParsedContent;
+    currentTemplateMode = null;
+    templateCountDisplay.textContent = '0';
+    templateCounter = 0;
+    copyButton.disabled = true;
+    return;
+  }
+  const sections = originalParsedContent.split(/(?=Removal order ID:)/g);
+  templateCounter = 0;
+  const modifiedSections = sections.map((section, index) => {
+    if (section.trim().startsWith('Removal order ID:') && index % customTemplateInterval === 0) {
+      templateCounter++;
+      return template + section;
+    }
+    return section;
+  });
+  outputContainer.textContent = modifiedSections.join('');
+  currentTemplateMode = 'custom';
+  templateCountDisplay.textContent = templateCounter;
+  copyButton.disabled = templateCounter === 0;
+  if (autoTemplateCopy && templateCounter > 0) {
+    copyOutput();
+  }
+}
+function parseTrackingOnly() {
+  const input = document.getElementById('shipmentInput').value;
+  const outputContainer = document.getElementById('output');
+  const copyButton = document.getElementById('copyButton');
+  const clearButton = document.querySelector('button[onclick="clearData()"]');
+  clearButton.disabled = !input.trim();
+  outputContainer.innerHTML = '';
+  copyButton.style.display = 'block';
+  currentTemplateMode = null;
+  originalParsedContent = '';
+  templateCounter = 0;
+  document.getElementById('templateCount').textContent = '0';
+  copyButton.disabled = true;
+  clearButton.disabled = true;
+  const trackingNumbers = [];
+  const sections = input.split(/Shipment ID:/g);
+  sections.forEach(section => {
+    trackingKeywords.forEach(keyword => {
+      const escapedKeyword = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const matches = section.match(new RegExp(`([A-Z0-9]+)${escapedKeyword}`, 'g')) || [];
+      matches.forEach(match => {
+        const trackingNumber = match.replace(new RegExp(escapedKeyword + '$'), '');
+        if (!trackingNumbers.includes(trackingNumber)) {
+          trackingNumbers.push(trackingNumber);
+        }
+      });
+    });
+  });
+  if (trackingNumbers.length > 0) {
+    const finalOutput = trackingNumbers.join('\n');
+    outputContainer.textContent = finalOutput;
+    originalParsedContent = finalOutput;
+    clearButton.disabled = false;
+    copyButton.disabled = false;
+  } else {
+    outputContainer.textContent = 'No tracking numbers found.';
+    copyButton.disabled = true;
+    clearButton.disabled = true;
+  }
+  copyButton.textContent = 'Copy';
+}
+function toggleAutoParse() {
+  const button = document.getElementById('autoParseToggle');
+  const autoTrackingButton = document.getElementById('autoTrackingToggle');
+  autoParse = !autoParse;
+  localStorage.setItem('autoParse', autoParse);
+  button.textContent = `Auto-Parse: ${autoParse ? 'On' : 'Off'}`;
+  button.style.backgroundColor = autoParse ? getComputedStyle(document.documentElement).getPropertyValue('--theme-darker') : getComputedStyle(document.documentElement).getPropertyValue('--theme-primary');
+  autoTrackingButton.disabled = !autoParse;
+  if (!autoParse && autoTracking) {
+    toggleAutoTracking();
+  }
+}
+function toggleAutoTemplate() {
+  const button = document.getElementById('autoTemplateToggle');
+  autoTemplate = !autoTemplate;
+  localStorage.setItem('autoTemplate', autoTemplate);
+  button.textContent = `Auto-Template: ${autoTemplate ? 'On' : 'Off'}`;
+  button.style.backgroundColor = autoTemplate ? getComputedStyle(document.documentElement).getPropertyValue('--theme-darker') : getComputedStyle(document.documentElement).getPropertyValue('--theme-primary');
+}
+function toggleAutoTemplateCopy() {
+  const button = document.getElementById('autoTemplateCopyToggle');
+  autoTemplateCopy = !autoTemplateCopy;
+  localStorage.setItem('autoTemplateCopy', autoTemplateCopy);
+  button.textContent = `Auto-Copy: ${autoTemplateCopy ? 'On' : 'Off'}`;
+  button.style.backgroundColor = autoTemplateCopy ? getComputedStyle(document.documentElement).getPropertyValue('--theme-darker') : getComputedStyle(document.documentElement).getPropertyValue('--theme-primary');
+}
+function getProminentColor(img) {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  const size = 25;
+  canvas.width = size;
+  canvas.height = size;
+  ctx.drawImage(img, 0, 0, size, size);
+  const data = ctx.getImageData(0, 0, size, size).data;
+  let r = 0,
+    g = 0,
+    b = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    r += data[i];
+    g += data[i + 1];
+    b += data[i + 2];
+  }
+  const pixelCount = data.length / 4;
+  r = Math.floor(r / pixelCount);
+  g = Math.floor(g / pixelCount);
+  b = Math.floor(b / pixelCount);
+  const hex = '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+  return hex;
+}
+function handleBackgroundUpload(event) {
+  const file = event.target.files[0];
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = function (e) {
+      const img = new Image();
+      img.onload = function () {
+        const prominentColor = getProminentColor(img);
+        setThemeColor(prominentColor);
+        document.body.style.backgroundImage = `url(${e.target.result})`;
+        document.body.classList.add('with-background');
+        document.querySelector('.container').classList.add('with-background');
+        const removeBtn = document.querySelector('.remove-bg');
+        if (removeBtn) {
+          removeBtn.classList.add('visible');
+        }
+        const colorOptions = document.querySelectorAll('.color-option');
+        colorOptions.forEach(option => {
+          option.classList.remove('active');
+        });
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+}
+function removeBackground() {
+  document.body.style.backgroundImage = '';
+  document.body.classList.remove('with-background');
+  document.querySelector('.container').classList.remove('with-background');
+  const removeBtn = document.querySelector('.remove-bg');
+  if (removeBtn) {
+    removeBtn.classList.remove('visible');
+  }
+  const fileInput = document.getElementById('backgroundUpload');
+  if (fileInput) {
+    fileInput.value = '';
+  }
+  setThemeColor('#1a73e8');
+}
+function createRipple(event) {
+  const button = event.currentTarget;
+  const ripple = document.createElement('span');
+  const diameter = Math.max(button.clientWidth, button.clientHeight);
+  const radius = diameter / 2;
+  const rect = button.getBoundingClientRect();
+  ripple.style.width = ripple.style.height = `${diameter}px`;
+  ripple.style.left = `${event.clientX - rect.left - radius}px`;
+  ripple.style.top = `${event.clientY - rect.top - radius}px`;
+  ripple.classList.add('ripple');
+  const existingRipple = button.getElementsByClassName('ripple')[0];
+  if (existingRipple) {
+    existingRipple.remove();
+  }
+  button.appendChild(ripple);
+}
+function toggleSettings() {
+  const popup = document.querySelector('.settings-popup');
+  const overlay = document.querySelector('.settings-overlay');
+  if (popup.classList.contains('open')) {
+    popup.classList.remove('open');
+    overlay.classList.remove('open');
+    document.body.style.overflow = 'auto';
+  } else {
+    popup.classList.add('open');
+    overlay.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+}
+function closeSettings() {
+  const popup = document.querySelector('.settings-popup');
+  const overlay = document.querySelector('.settings-overlay');
+  popup.classList.remove('open');
+  overlay.classList.remove('open');
+  document.body.style.overflow = 'auto';
+}
+function addTemplate() {
+  const input = document.getElementById('templateInput');
+  const template = input.value.trim();
+  if (template) {
+    templates.forEach(t => t.active = false);
+    templates.push({
+      text: template,
+      active: true
+    });
+    localStorage.setItem('templates', JSON.stringify(templates));
+    updateTemplatesList();
+    input.value = '';
+  }
+}
+function removeTemplate(index) {
+  templates.splice(index, 1);
+  localStorage.setItem('templates', JSON.stringify(templates));
+  updateTemplatesList();
+  if (currentTemplateMode) {
+    if (templates.length > 0) {
+      toggleTemplateToAll();
+    } else {
+      const outputContainer = document.getElementById('output');
+      outputContainer.textContent = originalParsedContent;
+      currentTemplateMode = null;
+      document.getElementById('templateCount').textContent = '0';
+      templateCounter = 0;
+    }
+  }
+}
+function updateTemplatesList() {
+  const activeContainer = document.getElementById('activeTemplatesList');
+  const inactiveContainer = document.getElementById('inactiveTemplatesList');
+  activeContainer.innerHTML = '';
+  inactiveContainer.innerHTML = '';
+  templates.forEach((template, index) => {
+    const item = document.createElement('div');
+    item.className = 'template-item';
+    item.draggable = true;
+    item.dataset.index = index;
+    const previewText = template.text.length > 50 ? template.text.substring(0, 50) + '...' : template.text;
+    item.innerHTML = `
+                    <span class="template-text" title="${template.text}">${previewText}</span>
+                    <div class="item-actions">
+                        <button onclick="editTemplate(${index})">
+                            <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+                        </button>
+                        <button onclick="removeTemplate(${index})">
+                            <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                        </button>
+                    </div>
+                `;
+    item.addEventListener('dragstart', handleDragStart);
+    item.addEventListener('dragend', handleDragEnd);
+    item.addEventListener('dragover', handleDragOver);
+    item.addEventListener('dragleave', handleDragLeave);
+    if (template.active) {
+      activeContainer.appendChild(item);
+    } else {
+      inactiveContainer.appendChild(item);
+    }
+  });
+}
+function editTemplate(index) {
+  initEditPopup();
+  currentEditItem = {
+    type: 'template',
+    index: index
+  };
+  document.getElementById('editInput').value = templates[index].text;
+  editPopup.classList.add('open');
+  event.stopPropagation();
+}
+function saveEdit() {
+  const newValue = document.getElementById('editInput').value.trim();
+  if (newValue && currentEditItem) {
+    if (currentEditItem.type === 'keyword') {
+      const index = trackingKeywords.indexOf(currentEditItem.value);
+      if (index > -1) {
+        trackingKeywords[index] = newValue;
+        localStorage.setItem('trackingKeywords', JSON.stringify(trackingKeywords));
+        updateKeywordsList();
+      }
+    } else if (currentEditItem.type === 'template' && typeof currentEditItem.index !== 'undefined') {
+      templates[currentEditItem.index].text = newValue;
+      localStorage.setItem('templates', JSON.stringify(templates));
+      const wasActive = templates[currentEditItem.index].active;
+      if (wasActive) {
+        templates.forEach((t, idx) => {
+          if (idx !== currentEditItem.index) {
+            t.active = false;
+          }
+        });
+      }
+      updateTemplatesList();
+      if (currentTemplateMode) {
+        if (currentTemplateMode === 'all') {
+          toggleTemplateToAll();
+        } else if (currentTemplateMode === 'custom') {
+          toggleTemplateEveryTwo();
+        }
+      }
+    }
+  }
+  editPopup.classList.remove('open');
+  currentEditItem = null;
+}
+function cancelEdit() {
+  if (editPopup) {
+    editPopup.classList.remove('open');
+  }
+  currentEditItem = null;
+}
+function initEditPopup() {
+  if (!editPopup) {
+    editPopup = document.createElement('div');
+    editPopup.className = 'edit-popup';
+    editPopup.innerHTML = `
+                    <h3>Edit Item</h3>
+                    <textarea id="editInput"></textarea>
+                    <div class="button-row">
+                        <button onclick="cancelEdit()">Cancel</button>
+                        <button onclick="saveEdit()">Save</button>
+                    </div>
+                `;
+    document.body.appendChild(editPopup);
+    const style = document.createElement('style');
+    style.textContent = `
+                    .edit-popup {
+                        display: none;
+                        position: fixed;
+                        top: 50%;
+                        left: 50%;
+                        transform: translate(-50%, -50%);
+                        background: var(--bg-primary);
+                        padding: 20px;
+                        border-radius: 12px;
+                        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                        z-index: 1002;
+                        min-width: 300px;
+                    }
+                    .edit-popup.open {
+                        display: block;
+                    }
+                    .edit-popup textarea {
+                        width: 100%;
+                        min-height: 100px;
+                        margin: 10px 0;
+                    }
+                    .edit-popup .button-row {
+                        display: flex;
+                        justify-content: flex-end;
+                        gap: 10px;
+                    }
+                    .edit-popup h3 {
+                        margin: 0;
+                        color: var(--text-primary);
+                    }
+                `;
+    document.head.appendChild(style);
+  }
+}
+function updateTemplateInterval() {
+  const input = document.getElementById('templateIntervalInput');
+  const value = parseInt(input.value);
+  if (value < 1) {
+    alert('Please enter a number greater than 0');
+    return;
+  }
+  customTemplateInterval = value;
+  const templateButton = document.querySelector('button[onclick="toggleTemplateEveryTwo()"]');
+  templateButton.textContent = `Template (${value})`;
+}
+function showSettingsPanel(panelId) {
+  document.querySelectorAll('.settings-panel').forEach(panel => panel.classList.remove('active'));
+  document.querySelectorAll('.settings-sidebar-item').forEach(item => item.classList.remove('active'));
+  document.querySelector(`#${panelId}`).classList.add('active');
+  document.querySelector(`[data-panel="${panelId}"]`).classList.add('active');
+}
+function handleDragStart(event) {
+  event.dataTransfer.setData('text/plain', event.target.dataset.index);
+  event.target.classList.add('dragging');
+}
+function handleDragEnd(event) {
+  event.target.classList.remove('dragging');
+}
+function handleDragOver(event) {
+  event.preventDefault();
+  event.currentTarget.classList.add('drag-over');
+}
+function handleDragLeave(event) {
+  event.currentTarget.classList.remove('drag-over');
+}
+function allowDrop(event) {
+  event.preventDefault();
+  event.currentTarget.classList.add('drag-over');
+}
+function drop(e, status) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  const templateIndex = parseInt(e.dataTransfer.getData('text/plain'));
+  if (status === 'active') {
+    templates.forEach((template, idx) => {
+      if (idx !== templateIndex) {
+        template.active = false;
+      }
+    });
+  }
+  templates[templateIndex].active = status === 'active';
+  localStorage.setItem('templates', JSON.stringify(templates));
+  updateTemplatesList();
+}
+function handleCustomColorPick(event) {
+  const color = event.target.value;
+  setThemeColor(color);
+  event.target.parentElement.style.background = color;
+}
+function toggleAutoTracking() {
+  const button = document.getElementById('autoTrackingToggle');
+  if (!autoParse) {
+    alert('Please enable Auto-Parse first');
+    return;
+  }
+  autoTracking = !autoTracking;
+  localStorage.setItem('autoTracking', autoTracking);
+  button.textContent = `Auto-Tracking: ${autoTracking ? 'On' : 'Off'}`;
+  button.style.backgroundColor = autoTracking ? getComputedStyle(document.documentElement).getPropertyValue('--theme-darker') : getComputedStyle(document.documentElement).getPropertyValue('--theme-primary');
+}
+document.addEventListener('DOMContentLoaded', () => {
+  const shipmentInput = document.getElementById('shipmentInput');
+  if (shipmentInput) {
+    shipmentInput.addEventListener('paste', e => {
+      if (autoParse) {
+        setTimeout(() => {
+          if (autoTracking) {
+            parseTrackingOnly();
+          } else {
+            parseShipmentData();
+            if (autoTemplate) {
+              setTimeout(() => {
+                toggleTemplateToAll();
+              }, 100);
+            }
+          }
+        }, 100);
+      }
+    });
+    shipmentInput.addEventListener('input', () => {
+      const clearButton = document.querySelector('button[onclick="clearData()"]');
+      clearButton.disabled = !shipmentInput.value.trim();
+    });
+  }
+  const settingsOverlay = document.querySelector('.settings-overlay');
+  if (settingsOverlay) {
+    settingsOverlay.addEventListener('click', closeSettings);
+  }
+  const themeToggle = document.getElementById('themeToggle');
+  if (themeToggle) {
+    themeToggle.textContent = '☀️ Light Mode';
+  }
+  const colorOptions = document.querySelectorAll('.color-option');
+  if (colorOptions && colorOptions.length > 0) {
+    colorOptions.forEach(option => {
+      if (option && option.dataset.color) {
+        option.addEventListener('click', () => {
+          setThemeColor(option.dataset.color);
+        });
+      }
+    });
+    const defaultColorOption = document.querySelector('[data-color="#1a73e8"]');
+    if (defaultColorOption) {
+      defaultColorOption.classList.add('active');
+      setThemeColor('#1a73e8');
+    }
+  }
+  const themePicker = document.querySelector('.theme-picker');
+  if (themePicker) {
+    document.addEventListener('click', e => {
+      if (!themePicker.contains(e.target)) {
+        themePicker.classList.remove('open');
+      }
+    });
+  }
+  const buttons = document.querySelectorAll('button');
+  buttons.forEach(button => {
+    button.addEventListener('click', createRipple);
+  });
+  const copyButton = document.getElementById('copyButton');
+  const clearButton = document.querySelector('button[onclick="clearData()"]');
+  const templateButton1 = document.querySelector('button[onclick="toggleTemplateToAll()"]');
+  const templateButton2 = document.querySelector('button[onclick="toggleTemplateEveryTwo()"]');
+  copyButton.style.display = 'block';
+  copyButton.disabled = true;
+  clearButton.disabled = true;
+  templateButton1.disabled = true;
+  templateButton2.disabled = true;
+  updateKeywordsList();
+  updateTemplatesList();
+  const templateIntervalInput = document.getElementById('templateIntervalInput');
+  if (templateIntervalInput) {
+    templateIntervalInput.value = customTemplateInterval;
+  }
+  let foundActive = false;
+  templates.forEach(template => {
+    if (template.active) {
+      if (foundActive) {
+        template.active = false;
+      }
+      foundActive = true;
+    }
+  });
+  updateTemplatesList();
+  const autoParseButton = document.getElementById('autoParseToggle');
+  const autoTemplateButton = document.getElementById('autoTemplateToggle');
+  const autoTemplateCopyButton = document.getElementById('autoTemplateCopyToggle');
+  const autoTrackingButton = document.getElementById('autoTrackingToggle');
+  if (autoParseButton) {
+    autoParseButton.textContent = `Auto-Parse: ${autoParse ? 'On' : 'Off'}`;
+    autoParseButton.style.backgroundColor = autoParse ? getComputedStyle(document.documentElement).getPropertyValue('--theme-darker') : getComputedStyle(document.documentElement).getPropertyValue('--theme-primary');
+  }
+  if (autoTemplateButton) {
+    autoTemplateButton.textContent = `Auto-Template: ${autoTemplate ? 'On' : 'Off'}`;
+    autoTemplateButton.style.backgroundColor = autoTemplate ? getComputedStyle(document.documentElement).getPropertyValue('--theme-darker') : getComputedStyle(document.documentElement).getPropertyValue('--theme-primary');
+  }
+  if (autoTemplateCopyButton) {
+    autoTemplateCopyButton.textContent = `Auto-Copy: ${autoTemplateCopy ? 'On' : 'Off'}`;
+    autoTemplateCopyButton.style.backgroundColor = autoTemplateCopy ? getComputedStyle(document.documentElement).getPropertyValue('--theme-darker') : getComputedStyle(document.documentElement).getPropertyValue('--theme-primary');
+  }
+  if (autoTrackingButton) {
+    autoTrackingButton.disabled = !autoParse;
+    autoTrackingButton.textContent = `Auto-Tracking: ${autoTracking ? 'On' : 'Off'}`;
+    autoTrackingButton.style.backgroundColor = autoTracking ? getComputedStyle(document.documentElement).getPropertyValue('--theme-darker') : getComputedStyle(document.documentElement).getPropertyValue('--theme-primary');
+  }
+  initColorPicker();
+});
+function initColorPicker() {
+  const picker = document.getElementById('customColorPicker');
+  picker.addEventListener('input', event => {
+    const color = event.target.value;
+    setThemeColor(color);
+    event.target.parentElement.style.background = color;
+  });
+}</script>
+    <style>
+        :root {
+            --theme-primary: #1a73e8;
+            --theme-secondary: #1a73e8;
+            --theme-darker: #0051C3;
+            --theme-surface: #f0f4fc;
+            --theme-surface-variant: #e8f0fe;
+            --bg-primary: #ffffff;
+            --bg-secondary: color-mix(in srgb, var(--theme-primary) 5%, #ffffff);
+            --text-primary: #202124;
+            --text-secondary: #5f6368;
+            --shadow-color: rgba(0, 0, 0, 0.2);
+        }
+
+        :root.dark {
+            --bg-primary: rgb(23, 33, 43); /* New dark mode background color */
+            --bg-secondary: rgb(23, 33, 43);
+            --text-primary: #e8eaed;
+            --text-secondary: #9aa0a6;
+            --theme-surface: color-mix(in srgb, var(--theme-primary) 8%, var(--bg-secondary));
+            --theme-surface-variant: color-mix(in srgb, var(--theme-darker) 12%, var(--bg-secondary));
+            --shadow-color: rgba(0, 0, 0, 0.4);
+        }
+
+        /* Update the title styling to override theme gradient in dark mode */
+        :root.dark h1 {
+            background: none;
+            -webkit-background-clip: unset;
+            background-clip: unset;
+            -webkit-text-fill-color: white;
+            color: white;
+        }
+
+        body {
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+            overflow-x: hidden;
+            font-family: 'Google Sans', Arial, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            transition: all 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            width: calc(100% - 30px);
+            max-width: 890px;
+            min-width: 320px;
+            padding: 20px;
+            height: calc(100vh - 100px);
+            background-color: var(--bg-primary);
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            margin: 15px auto;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .container.with-background {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        :root.dark .container.with-background {
+            background: rgba(41, 42, 45, 0.8);
+        }
+
+        body.with-background {
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+        }
+
+        .header-section {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            margin-bottom: 15px;
+        }
+
+        h1 {
+            margin-left: 0px;
+            color: var(--theme-primary);
+            font-size: 26px;
+            line-height: 40px;
+            font-weight: 500;
+            background: linear-gradient(to right, var(--theme-primary), var(--theme-darker));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        :root.dark h1 {
+            background: none;
+            -webkit-background-clip: unset;
+            background-clip: unset;
+            -webkit-text-fill-color: white;
+            color: white;
+        }
+
+        .settings-button {
+            width: 40px;
+            height: 40px;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            background: transparent;
+            transition: background-color 0.3s ease;
+            gap: 4px;
+        }
+
+        .settings-button:hover {
+            background-color: rgba(60, 64, 67, 0.08);
+        }
+
+        .settings-button span {
+            display: block;
+            width: 18px;
+            height: 2px;
+            background-color: var(--text-primary);
+            transition: all 0.3s ease;
+        }
+
+        button {
+            background-color: var(--theme-primary);
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            margin: 5px;
+            transition: all 0.3s ease;
+            font-family: 'Google Sans', Arial, sans-serif;
+            position: relative;
+            overflow: hidden;
+        }
+
+        button:hover {
+            background-color: var(--theme-darker);
+            transform: translateY(-1px);
+            box-shadow: 0 1px 2px rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
+        }
+
+        button:disabled {
+            background-color: rgba(0, 0, 0, 0.12);
+            color: rgba(0, 0, 0, 0.38);
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        .dark button:disabled {
+            background-color: rgba(255, 255, 255, 0.12);
+            color: rgba(255, 255, 255, 0.38);
+        }
+
+        textarea, #output {
+            width: 100%;
+            margin-right: 0;
+            box-sizing: border-box;
+            border: 1px solid #dadce0;  /* Default light mode border */
+            transition: border-color 0.3s ease;  /* Smooth transition for border changes */
+        }
+
+        :root.dark textarea,
+        :root.dark #output {
+            background-color: rgb(36, 47, 61);
+            border-color: transparent;  /* Change from rgba(255, 255, 255, 0.1) to transparent */
+            color: var(--text-primary);
+        }
+
+        :root.dark textarea:focus {
+            outline: none;  /* Remove focus outline in dark mode */
+            border-color: transparent;  /* Keep border transparent even on focus */
+        }
+
+        textarea {
+            height: 200px;
+            padding: 12px;
+            border: 1px solid #dadce0;
+            border-radius: 12px;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            resize: vertical;
+            font-family: monospace;
+            line-height: 1.5;
+            margin-bottom: 10px;
+        }
+
+        textarea::-webkit-scrollbar,
+        #output::-webkit-scrollbar {
+            width: 12px;
+        }
+
+        textarea::-webkit-scrollbar-track,
+        #output::-webkit-scrollbar-track {
+            background: var(--bg-secondary);
+            border-radius: 10px;
+        }
+
+        textarea::-webkit-scrollbar-thumb,
+        #output::-webkit-scrollbar-thumb {
+            background: var(--theme-primary);
+            border-radius: 10px;
+            border: 3px solid var(--bg-secondary);
+        }
+
+        textarea::-webkit-scrollbar-thumb:hover,
+        #output::-webkit-scrollbar-thumb:hover {
+            background: var(--theme-darker);
+        }
+
+        #output {
+            height: calc(100vh - 460px);
+            overflow-y: auto;
+            padding: 16px;
+            border: 1px solid #dadce0;
+            border-radius: 12px;
+            margin-top: 10px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            line-height: 1.5;
+            margin-bottom: 10px;
+        }
+
+        .button-group {
+            width: 100%;
+            padding: 0;
+            flex-wrap: wrap;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .left-buttons {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .right-buttons {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-right: 2px;
+        }
+
+        #templateCount {
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        .ripple {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            transform: scale(0);
+            animation: rippleAnimation 0.6s linear;
+            pointer-events: none;
+        }
+
+        @keyframes rippleAnimation {
+            to {
+                transform: scale(4);
+                opacity: 0;
+            }
+        }
+
+        .settings-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            z-index: 1000;
+        }
+
+        .settings-overlay.open {
+            display: block;
+        }
+
+        .settings-popup {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: var(--bg-primary);
+            border-radius: 12px;
+            box-shadow: 0 8px 20px var(--shadow-color);
+            z-index: 1001;
+            display: none;
+            width: 800px;
+            height: 600px;
+            max-height: 80vh;
+            overflow: hidden; /* Prevent content overflow */
+        }
+
+        .settings-popup.open {
+            display: flex;
+        }
+
+        /* Update the settings header to stay fixed */
+        .settings-header {
+            position: sticky;
+            top: 0;
+            background: var(--bg-primary);
+            z-index: 2;
+            padding: 20px;
+            border-bottom: 1px solid var(--theme-surface);
+        }
+
+        .settings-content {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            max-height: calc(100vh - 140px);
+        }
+
+        /* Update scrollbar styling for settings-content */
+        .settings-content::-webkit-scrollbar {
+            width: 0px; /* Change from 8px to 0px to hide scrollbar */
+            display: none; /* Completely hide the scrollbar */
+        }
+
+        /* Add Firefox compatibility */
+        .settings-content {
+            scrollbar-width: none; /* For Firefox */
+            -ms-overflow-style: none;  /* For Internet Explorer and Edge */
+        }
+
+        /* Update settings panels to maintain consistent height */
+        .settings-panel {
+            height: 100%;
+            display: none;
+            padding-bottom: 20px;
+        }
+
+        .settings-panel.active {
+            display: block;
+        }
+
+        /* Settings group spacing */
+        .auto-settings-group, .keyword-input-container {
+            margin-bottom: 24px;
+        }
+
+        .setting-item {
+            margin-bottom: 16px;
+        }
+
+        .setting-description {
+            margin: 8px 0 0 0;
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        /* Modern scrollbar styling for settings content */
+        .settings-content::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .settings-content::-webkit-scrollbar-track {
+            background: var(--bg-secondary);
+            border-radius: 4px;
+        }
+
+        .settings-content::-webkit-scrollbar-thumb {
+            background: var(--theme-primary);
+            border-radius: 4px;
+            border: 2px solid var(--bg-secondary);
+        }
+
+        .settings-content::-webkit-scrollbar-thumb:hover {
+            background: var(--theme-darker);
+        }
+
+        /* Update sidebar styling */
+        .settings-sidebar {
+            width: 200px;
+            border-right: 1px solid var(--theme-surface);
+            padding: 20px 0;
+            background: var(--theme-surface);
+            flex-shrink: 0; /* Prevent sidebar from shrinking */
+        }
+
+        .settings-sidebar-item {
+            padding: 12px 20px;
+            cursor: pointer;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: all 0.2s ease;
+        }
+
+        .settings-sidebar-item svg {
+            width: 20px;
+            height: 20px;
+            fill: currentColor;
+        }
+
+        .settings-sidebar-item:hover {
+            background: var(--theme-surface-variant);
+        }
+
+        .settings-sidebar-item.active {
+            background: var(--theme-surface-variant);
+            color: var(--theme-primary);
+            position: relative;
+        }
+
+        .settings-sidebar-item.active::after {
+            content: '';
+            position: absolute;
+            right: 0;
+            top: 0;
+            height: 100%;
+            width: 3px;
+            background: var(--theme-primary);
+        }
+
+        /* Update section headers */
+        .settings-panel h3 {
+            font-size: 16px;
+            font-weight: 500;
+            margin: 0 0 16px 0;
+            color: var(--text-primary);
+        }
+
+        /* Settings groups spacing */
+        .template-interval-setting {
+            margin-top: 20px;
+        }
+
+        .template-interval-setting input {
+            width: 60px;
+            padding: 8px;
+            margin-right: 10px;
+            border: 1px solid var(--theme-surface);
+            border-radius: 4px;
+        }
+
+        .color-options-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+            gap: 10px;
+            margin: 15px 0;
+        }
+
+        .color-option {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.2s ease;
+        }
+
+        .color-option.active {
+            border-color: var(--text-primary);
+            transform: scale(1.1);
+        }
+
+        .upload-label {
+            display: inline-block;
+            padding: 10px 20px;
+            background: var(--theme-primary);
+            color: white;
+            border-radius: 50px;
+            cursor: pointer;
+            margin: 10px 0;
+        }
+
+        #backgroundUpload {
+            display: none;
+        }
+
+        .remove-bg {
+            display: none;
+        }
+
+        .remove-bg.visible {
+            display: inline-block;
+        }
+
+        .keyword-input-container {
+            margin-bottom: 20px;
+        }
+
+        .keyword-input-container input,
+        .keyword-input-container textarea {
+            width: calc(100% - 100px);
+            padding: 8px;
+            margin-right: 10px;
+            border: 1px solid var(--theme-surface);
+            border-radius: 4px;
+        }
+
+        .keywords-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .keyword-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            background: var(--theme-surface);
+            border-radius: 8px;
+        }
+
+        .item-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .item-actions button {
+            padding: 6px;
+            margin: 0;
+            background: transparent;
+            color: var(--text-primary);
+        }
+
+        .item-actions button:hover {
+            background: var(--theme-surface-variant);
+        }
+
+        .item-actions svg {
+            width: 20px;
+            height: 20px;
+            fill: currentColor;
+        }
+
+        .version-history::-webkit-scrollbar {
+            width: 12px;
+        }
+
+        .version-history::-webkit-scrollbar-track {
+            background: var(--bg-secondary);
+            border-radius: 10px;
+        }
+
+        .version-history::-webkit-scrollbar-thumb {
+            background: var(--theme-primary);
+            border-radius: 10px;
+            border: 3px solid var(--bg-secondary);
+        }
+
+        .version-history::-webkit-scrollbar-thumb:hover {
+            background: var(--theme-darker);
+        }
+
+        /* Add Firefox compatibility */
+        .version-history {
+            scrollbar-color: var(--theme-primary) var(--bg-secondary);
+            scrollbar-width: thin;
+        }
+        
+        button:disabled {
+            background-color: color-mix(in srgb, var(--theme-primary) 40%, white) !important;
+            color: white !important;
+            cursor: not-allowed;
+            pointer-events: none;
+            opacity: 0.7;
+        }
+
+        .dark button:disabled {
+            background-color: color-mix(in srgb, var(--theme-primary) 30%, var(--bg-primary)) !important;
+            color: rgba(255, 255, 255, 0.6) !important;
+        }
+        
+        .template-item.dragging {
+          opacity: 0.5;
+        }
+
+        .templates-list.drag-over {
+          background: var(--theme-surface-variant);
+          border-style: solid;
+        }
+        
+        .automation-flow {
+          background: var(--theme-surface);
+          border-radius: 12px;
+          padding: 20px;
+          margin-bottom: 20px;
+        }
+
+        .automation-step {
+          margin-bottom: 20px;
+        }
+
+        .automation-step:last-child {
+          margin-bottom: 0;
+        }
+
+        .automation-step h4 {
+          color: var(--text-primary);
+          margin: 0 0 10px 0;
+          font-size: 14px;
+          font-weight: 500;
+        }
+
+        .dependent-setting {
+          position: relative;
+          padding-left: 20px;
+        }
+
+        .dependent-setting:before {
+          content: '';
+          position: absolute;
+          left: 0;
+          top: -10px;
+          bottom: 0;
+          width: 2px;
+          background: var(--theme-primary);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header-section">
+            <h1>Amazon Shipment Data Parser</h1>
+            <button class="settings-button" onclick="toggleSettings()">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+        </div>
+        <textarea id="shipmentInput" placeholder="Paste your shipment data here (including Removal order ID)..." style="outline: none;"></textarea>
+        <div class="button-group">
+            <div class="left-buttons">
+                <button onclick="parseShipmentData()" class="primary">Parse</button>
+                <button onclick="parseTrackingOnly()" class="primary">Tracking</button>
+                <button onclick="clearData()" class="secondary">Clear</button>
+                <button onclick="toggleTemplateToAll()" class="secondary">Template (1)</button>
+                <button onclick="toggleTemplateEveryTwo()" class="secondary">Template (2)</button>
+            </div>
+            <div class="right-buttons">
+                <div id="templateCount">0</div>
+                <button id="copyButton" onclick="copyOutput()" disabled>Copy</button>
+            </div>
+        </div>
+        <div id="output"></div>
+    </div>
+    <div class="settings-overlay"></div>
+    <div class="settings-popup">
+        <div class="settings-sidebar">
+            <h2 style="color: var(--text-primary); margin: 0 0 20px 20px; font-size: 20px; display: flex; justify-content: space-between; align-items: center;">
+                Settings
+                <button onclick="closeSettings()" style="background: transparent; color: var(--text-primary); padding: 8px; margin: 0; min-width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;">
+                    <svg viewBox="0 0 24 24" style="width: 24px; height: 24px; fill: currentColor;">
+                        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                    </svg>
+                </button>
+            </h2>
+            <div class="settings-sidebar-item active" data-panel="appearance" onclick="showSettingsPanel(&apos;appearance&apos;)">
+                <svg viewBox="0 0 24 24"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
+                Appearance
+            </div>
+            <div class="settings-sidebar-item" data-panel="automation" onclick="showSettingsPanel(&apos;automation&apos;)">
+                <svg viewBox="0 0 24 24"><path d="M22.7 19l-9.1-9.1c.9-2.3.4-5-1.5-6.9-2-2-5-2.4-7.4-1.3L9 6 6 9 1.6 4.7C.4 7.1.9 10.1 2.9 12.1c1.9 1.9 4.6 2.4 6.9 1.5l9.1 9.1c.4.4 1 .4 1.4 0l2.3-2.3c.5-.4.5-1.1.1-1.4z"/></svg>
+                Automation
+            </div>
+            <div class="settings-sidebar-item" data-panel="templates" onclick="showSettingsPanel(&apos;templates&apos;)">
+                <svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7V7h10v2z"/></svg>
+                Templates
+            </div>
+            <div class="settings-sidebar-item" data-panel="tracking" onclick="showSettingsPanel(&apos;tracking&apos;)">
+                <svg viewBox="0 0 24 24"><path d="M20.71 5.63l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-3.12 3.12-1.93-1.91-1.41 1.41 1.42 1.42L3 16.25V21h4.75l8.92-8.92 1.42 1.42 1.41-1.41-1.92-1.92 3.12-3.12c.4-.4.4-1.03.01-1.42zM6.92 19L5 17.08l8.06-8.06 1.92 1.92L6.92 19z"/></svg>
+                Tracking
+            </div>
+            <div class="settings-sidebar-item" data-panel="about" onclick="showSettingsPanel(&apos;about&apos;)">
+                <svg viewBox="0 0 24 24"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>
+                About
+            </div>
+        </div>
+        <div class="settings-content">
+            <div id="appearance" class="settings-panel active" style="padding-top: 20px;">
+                <h3>Theme</h3>
+                <button id="themeToggle" onclick="toggleTheme()">&#x2600;&#xfe0f; Light Mode</button>
+                <h3>Color Theme</h3>
+                <div class="color-options-grid">
+                    <div class="color-option active" data-color="#1a73e8" style="background-color: #1a73e8;"></div>
+                    <div class="color-option" data-color="#d93025" style="background-color: #d93025;"></div>
+                    <div class="color-option" data-color="#188038" style="background-color: #188038;"></div>
+                    <div class="color-option" data-color="#9334e6" style="background-color: #9334e6;"></div>
+                    <div class="color-option" data-color="#ff69b4" style="background-color: #ff69b4;"></div>
+                    <div class="color-option" data-color="#ff8c00" style="background-color: #ff8c00;"></div>
+                    <div class="color-option" data-color="#90EE90" style="background-color: #90EE90;"></div>
+                    <div class="color-picker-wrapper">
+                        <div class="color-option" style="background: white; cursor: pointer; position: relative; border: 1px solid black;" onclick="document.getElementById(&apos;customColorPicker&apos;).click()">
+                            <svg viewBox="0 0 24 24" style="width: 24px; height: 24px; fill: currentColor; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);">
+                                <path d="M20.71 5.63l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-3.12 3.12-1.93-1.91-1.41 1.41 1.42 1.42L3 16.25h4.75L7.07 9.17 3 5.64 4.36 4.22C5.25 3.48 6.73 3 8.07 3z"/>
+                            </svg>
+                            <input type="color" id="customColorPicker" style="opacity: 0; width: 0; height: 0; position: absolute;">
+                        </div>
+                    </div>
+                </div>
+                <h3>Background</h3>
+                <input type="file" id="backgroundUpload" accept="image/*" onchange="handleBackgroundUpload(event)">
+                <label for="backgroundUpload" class="upload-label">Upload Background</label>
+                <button class="remove-bg" onclick="removeBackground()">Remove Background</button>
+            </div>
+
+            <div id="automation" class="settings-panel" style="padding-top: 20px;">
+              <h3>Automatic Functions</h3>
+              <div class="auto-settings-group">
+                <div class="automation-flow">
+                  <div class="automation-step">
+                    <h4>Step 1: Auto-Parse</h4>
+                    <div class="setting-item">
+                      <button id="autoParseToggle" onclick="toggleAutoParse()">Auto-Parse: Off</button>
+                      <p class="setting-description">When enabled, text will be automatically parsed when pasted.</p>
+                    </div>
+                  </div>
+                  <div class="automation-step">
+                    <h4>Step 2: Choose Auto-Parse Type</h4>
+                    <div class="setting-item dependent-setting">
+                      <button id="autoTrackingToggle" onclick="toggleAutoTracking()" disabled>Auto-Tracking: Off</button>
+                      <p class="setting-description">When enabled, only tracking numbers will be extracted when data is pasted. Requires Auto-Parse to be enabled.</p>
+                    </div>
+                  </div>
+                </div>
+                <div class="setting-item">
+                  <button id="autoTemplateToggle" onclick="toggleAutoTemplate()">Auto-Template: Off</button>
+                  <p class="setting-description">When enabled, Template (1) will be automatically applied after parsing.</p>
+                </div>
+                <div class="setting-item">
+                  <button id="autoTemplateCopyToggle" onclick="toggleAutoTemplateCopy()">Auto-Copy: Off</button>
+                  <p class="setting-description">When enabled, text will automatically be copied after applying templates.</p>
+                </div>
+              </div>
+              <h3>Template Settings</h3>
+              <div class="template-interval-setting">
+                <label for="templateIntervalInput">Template Interval:</label>
+                <input type="number" id="templateIntervalInput" min="1" value="2" onchange="updateTemplateInterval()">
+                <p class="setting-description">Number of shipments before adding template when using Template (X) button.</p>
+              </div>
+            </div>
+
+            <div id="templates" class="settings-panel" style="padding-top: 40px;">
+                <h3>Templates</h3>
+                <div class="keyword-input-container">
+                    <textarea id="templateInput" placeholder="Add new template message..."></textarea>
+                    <button onclick="addTemplate()">Add</button>
+                </div>
+                
+                <div class="templates-container">
+                    <h4>Active Template</h4>
+                    <div id="activeTemplatesList" class="templates-list" ondrop="drop(event, &apos;active&apos;)" ondragover="allowDrop(event)">
+                        <!-- Active templates will be here -->
+                    </div>
+                    
+                    <h4>Inactive Templates</h4>
+                    <div id="inactiveTemplatesList" class="templates-list" ondrop="drop(event, &apos;inactive&apos;)" ondragover="allowDrop(event)">
+                        <!-- Inactive templates will be here -->
+                    </div>
+                </div>
+
+                <style>
+                    .templates-container {
+                        margin-top: 20px;
+                    }
+                    
+                    .templates-container h4 {
+                        color: var(--text-primary);
+                        margin: 15px 0 10px 0;
+                        font-size: 14px;
+                        font-weight: 500;
+                    }
+                    
+                    .templates-list {
+                        min-height: 100px;
+                        border: 2px dashed var(--theme-surface-variant);
+                        border-radius: 8px;
+                        padding: 10px;
+                        margin-bottom: 20px;
+                        background: var(--theme-surface);
+                    }
+                    
+                    .template-item {
+                        background: var(--bg-primary);
+                        padding: 12px;
+                        margin-bottom: 8px;
+                        border-radius: 6px;
+                        cursor: move;
+                        box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+                        transition: transform 0.2s ease, box-shadow 0.2s ease;
+                        user-select: none;
+                    }
+                    
+                    .template-item:hover {
+                        transform: translateY(-1px);
+                        box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+                    }
+                </style>
+            </div>
+
+            <div id="tracking" class="settings-panel" style="padding-top: 40px;">
+                <h3>Tracking Keywords</h3>
+                <div class="keyword-input-container">
+                    <input type="text" id="keywordInput" placeholder="Add new keyword...">
+                    <button onclick="addKeyword()">Add</button>
+                </div>
+                <div id="keywordsList" class="keywords-list">
+                    <!-- Keywords will be dynamically added here -->
+                </div>
+            </div>
+
+            <div id="about" class="settings-panel">
+                <h2>Amazon Shipment Parser Version 1.2.2</h2>
+                <div class="developer">
+                    <p></p>
+                    <button class="check-update-btn" onclick="checkForUpdates()">Check for Updates</button>
+                </div>
+                <div class="version-history" style="max-height: 400px; overflow-y: auto; padding: 20px; background: var(--theme-surface); border-radius: 12px; margin-top: 20px; box-shadow: 0 2px 8px var(--shadow-color);">
+                    <h3>Version History</h3>
+                    <div class="version">
+                        <h4>Version 1.2.2 (Current)</h4>
+                        <ul>
+                            <li>Added &quot;Tracking&quot; button to parse tracking numbers only</li>
+                            <li>Added auto-tracking option for tracking number extraction</li>
+                            <li>Dark mode UI improvements</li>
+                            <li>Fixed input outline appearing on focus</li>
+                            <li>Updated disabled button styling</li>
+                            <li>Fixed various bugs and styling issues</li>
+                        </ul>
+                    </div>
+                    <div class="version">
+                        <h4>Version 1.2.1</h4>
+                        <ul>
+                            <li>Added categorized settings interface with sidebar navigation</li>
+                            <li>Grouped auto-function settings together</li>
+                            <li>Added customizable template interval settings</li>
+                            <li>Added auto-copy functionality for templates</li>
+                            <li>Implemented auto-parse and auto-template features</li>
+                        </ul>
+                    </div>
+                    <div class="version">
+                        <h4>Version 1.2.0</h4>
+                        <ul>
+                            <li>Added customizable color themes</li>
+                            <li>Implemented color picker for custom theme colors</li>
+                            <li>Added modern scrollbar styling</li>
+                            <li>Added version history and about page</li>
+                            <li>Improved settings interface layout</li>
+                            <li>Enhanced template management system</li>
+                        </ul>
+                    </div>
+                    <div class="version">
+                        <h4>Version 1.1.9</h4>
+                        <ul>
+                            <li>Added custom background image support</li>
+                            <li>Implemented background blur effects</li>
+                            <li>Added background removal functionality</li>
+                            <li>Enhanced dark mode compatibility</li>
+                        </ul>
+                    </div>
+                    <div class="version">
+                        <h4>Version 1.1.8</h4>
+                        <ul>
+                            <li>Added editable tracking keywords</li>
+                            <li>Implemented keyword management system</li>
+                            <li>Added edit popup interface</li>
+                            <li>Improved keyword validation</li>
+                        </ul>
+                    </div>
+                    <div class="version">
+                        <h4>Version 1.1.7</h4>
+                        <ul>
+                            <li>Added editable templates functionality</li>
+                            <li>Implemented template counter</li>
+                            <li>Enhanced template preview system</li>
+                            <li>Added template validation</li>
+                        </ul>
+                    </div>
+                    <div class="version">
+                        <h4>Version 1.1.6</h4>
+                        <ul>
+                            <li>Added ripple effects to buttons</li>
+                            <li>Enhanced visual feedback</li>
+                            <li>Improved button animations</li>
+                            <li>Updated UI interactions</li>
+                        </ul>
+                    </div>
+                    <div class="version">
+                        <h4>Version 1.1.5</h4>
+                        <ul>
+                            <li>Improved template system functionality</li>
+                            <li>Enhanced data parsing accuracy</li>
+                            <li>Added template counter display</li>
+                            <li>Fixed various template application bugs</li>
+                            <li>Improved error handling for data parsing</li>
+                        </ul>
+                    </div>
+                    <div class="version">
+                        <h4>Version 1.1.2</h4>
+                        <ul>
+                            <li>Added template alternating feature</li>
+                            <li>Improved clipboard copy functionality</li>
+                            <li>Enhanced UI responsiveness</li>
+                            <li>Added visual feedback for actions</li>
+                            <li>Fixed template formatting issues</li>
+                        </ul>
+                    </div>
+                    <div class="version">
+                        <h4>Version 1.1.0</h4>
+                        <ul>
+                            <li>Added dark/light mode toggle</li>
+                            <li>Added template system for messages</li>
+                            <li>Added tracking keyword management</li>
+                            <li>Improved UI design and animations</li>
+                            <li>Enhanced keyboard shortcuts support</li>
+                        </ul>
+                    </div>
+                    <div class="version">
+                        <h4>Version 1.0.5</h4>
+                        <ul>
+                            <li>Added support for multiple tracking formats</li>
+                            <li>Improved parsing reliability</li>
+                            <li>Enhanced error messages</li>
+                            <li>Fixed minor UI inconsistencies</li>
+                        </ul>
+                    </div>
+                    <div class="version">
+                        <h4>Version 1.0.0</h4>
+                        <ul>
+                            <li>Initial release</li>
+                            <li>Basic shipment data parsing</li>
+                            <li>Copy functionality</li>
+                            <li>Basic tracking number detection</li>
+                            <li>Simple data validation</li>
+                            <li>Basic error handling</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body></html>
