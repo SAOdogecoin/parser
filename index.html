@@ -709,7 +709,9 @@ function toggleAutoTracking() {
 }
 document.addEventListener('DOMContentLoaded', () => {
   const shipmentInput = document.getElementById('shipmentInput');
+  
   if (shipmentInput) {
+    // Existing event listeners
     shipmentInput.addEventListener('paste', e => {
       if (autoParse) {
         setTimeout(() => {
@@ -730,7 +732,29 @@ document.addEventListener('DOMContentLoaded', () => {
       const clearButton = document.querySelector('button[onclick="clearData()"]');
       clearButton.disabled = !shipmentInput.value.trim();
     });
+
+    // MutationObserver to detect changes to the input field
+    const observer = new MutationObserver(() => {
+      if (autoParse) {
+        setTimeout(() => {
+          if (autoTracking) {
+            parseTrackingOnly();
+          } else {
+            parseShipmentData();
+            if (autoTemplate) {
+              setTimeout(() => {
+                toggleTemplateToAll();
+              }, 100);
+            }
+          }
+        }, 100);
+      }
+    });
+
+    observer.observe(shipmentInput, { attributes: true, childList: true, subtree: true, characterData: true });
+
   }
+});
   const settingsOverlay = document.querySelector('.settings-overlay');
   if (settingsOverlay) {
     settingsOverlay.addEventListener('click', closeSettings);
