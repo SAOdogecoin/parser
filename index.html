@@ -714,30 +714,32 @@
    button.textContent = `Auto-Tracking: ${autoTracking ? 'On' : 'Off'}`;
    button.style.backgroundColor = autoTracking ? getComputedStyle(document.documentElement).getPropertyValue('--theme-darker') : getComputedStyle(document.documentElement).getPropertyValue('--theme-primary');
  }
- document.addEventListener('DOMContentLoaded', () => {
-   const shipmentInput = document.getElementById('shipmentInput');
-   if (shipmentInput) {
-     shipmentInput.addEventListener('paste', e => {
-       if (autoParse) {
-         setTimeout(() => {
-           if (autoTracking) {
-             parseTrackingOnly();
-           } else {
-             parseShipmentData();
-             if (autoTemplate) {
-               setTimeout(() => {
-                 toggleTemplateToAll();
-               }, 100);
-             }
-           }
-         }, 100);
-       }
-     });
-     shipmentInput.addEventListener('input', () => {
-       const clearButton = document.querySelector('button[onclick="clearData()"]');
-       clearButton.disabled = !shipmentInput.value.trim();
-     });
-   }
+document.addEventListener('DOMContentLoaded', () => {
+  const shipmentInput = document.getElementById('shipmentInput');
+  if (shipmentInput) {
+    shipmentInput.addEventListener('paste', (e) => {
+      if (autoParse) {
+        setTimeout(() => {
+          if (autoTracking) {
+            parseTrackingOnly();
+          } else {
+            parseShipmentData();
+            if (autoTemplate) {
+              setTimeout(() => {
+                toggleTemplateToAll();
+              }, 100);
+            }
+          }
+        }, 100);
+      }
+    });
+
+    shipmentInput.addEventListener('input', () => {
+      const clearButton = document.querySelector('button[onclick="clearData()"]');
+      clearButton.disabled = !shipmentInput.value.trim();
+    });
+  }
+});
    const settingsOverlay = document.querySelector('.settings-overlay');
    if (settingsOverlay) {
      settingsOverlay.addEventListener('click', closeSettings);
