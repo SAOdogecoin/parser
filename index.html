@@ -710,7 +710,7 @@ function toggleAutoTracking() {
 document.addEventListener('DOMContentLoaded', () => {
   const shipmentInput = document.getElementById('shipmentInput');
   if (shipmentInput) {
-    shipmentInput.addEventListener('paste', e => {
+    shipmentInput.addEventListener('paste', (e) => {
       if (autoParse) {
         setTimeout(() => {
           if (autoTracking) {
@@ -726,11 +726,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 100);
       }
     });
+
     shipmentInput.addEventListener('input', () => {
       const clearButton = document.querySelector('button[onclick="clearData()"]');
       clearButton.disabled = !shipmentInput.value.trim();
     });
   }
+});
   const settingsOverlay = document.querySelector('.settings-overlay');
   if (settingsOverlay) {
     settingsOverlay.addEventListener('click', closeSettings);
