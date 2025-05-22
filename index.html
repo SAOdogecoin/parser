@@ -1,7 +1,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&amp;family=Roboto:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
 <script>let editPopup = null;
 let currentEditItem = null;
-let currentTheme = 'light';
+let currentTheme = localStorage.getItem('theme') || 'light'; // Load theme or default to light
 let currentTemplateMode = null;
 let originalParsedContent = '';
 let templateCounter = 0;
@@ -15,6 +16,8 @@ let autoTemplate = localStorage.getItem('autoTemplate') === 'true' || false;
 let autoTemplateCopy = localStorage.getItem('autoTemplateCopy') === 'true' || false;
 let customTemplateInterval = 2;
 let autoTracking = localStorage.getItem('autoTracking') === 'true' || false;
+let isCompactMode = false; // Global variable for compact mode
+
 function setThemeColor(color) {
   let primaryColor = color;
   let secondaryColor = color;
@@ -25,9 +28,9 @@ function setThemeColor(color) {
   document.documentElement.style.setProperty('--theme-darker', darkerColor);
   document.documentElement.style.setProperty('--theme-surface', `color-mix(in srgb, ${primaryColor} 8%, var(--bg-secondary))`);
   document.documentElement.style.setProperty('--theme-surface-variant', `color-mix(in srgb, ${darkerColor} 12%, var(--bg-secondary))`);
-  if (!document.documentElement.classList.contains('dark')) {
-    document.body.style.backgroundColor = `color-mix(in srgb, ${primaryColor} 5%, var(--bg-secondary))`;
-  }
+  
+  localStorage.setItem('accentColor', color); // Save chosen accent color
+
   const colorOptions = document.querySelectorAll('.color-option');
   colorOptions.forEach(option => {
     option.classList.toggle('active', option.dataset.color === color);
@@ -68,10 +71,10 @@ function updateKeywordsList() {
     item.innerHTML = `
                     <span class="keyword-text">${keyword}</span>
                     <div class="item-actions">
-                        <button onclick="editKeyword('${keyword}')">
+                        <button onclick="editKeyword('${keyword}')" aria-label="Edit Keyword: ${keyword}">
                             <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
                         </button>
-                        <button onclick="removeKeyword('${keyword}')">
+                        <button onclick="removeKeyword('${keyword}')" aria-label="Remove Keyword: ${keyword}">
                             <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
                         </button>
                     </div>
@@ -221,16 +224,14 @@ function toggleTheme() {
   const themeToggle = document.getElementById('themeToggle');
   if (currentTheme === 'light') {
     htmlElement.classList.add('dark');
-    themeToggle.textContent = '🌙 Dark Mode';
+    if (themeToggle) themeToggle.textContent = '🌙 Dark Mode';
     currentTheme = 'dark';
-    document.body.style.backgroundColor = '#000000';
   } else {
     htmlElement.classList.remove('dark');
-    themeToggle.textContent = '☀️ Light Mode';
+    if (themeToggle) themeToggle.textContent = '☀️ Light Mode';
     currentTheme = 'light';
-    const currentColor = getComputedStyle(document.documentElement).getPropertyValue('--theme-primary');
-    document.body.style.backgroundColor = `color-mix(in srgb, ${currentColor} 5%, var(--bg-secondary))`;
   }
+  localStorage.setItem('theme', currentTheme);
 }
 function toggleThemePicker() {
   const themePicker = document.querySelector('.theme-picker');
@@ -523,10 +524,10 @@ function updateTemplatesList() {
     item.innerHTML = `
                     <span class="template-text" title="${template.text}">${previewText}</span>
                     <div class="item-actions">
-                        <button onclick="editTemplate(${index})">
+                        <button onclick="editTemplate(${index})" aria-label="Edit Template: ${previewText.substring(0,20)}...">
                             <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
                         </button>
-                        <button onclick="removeTemplate(${index})">
+                        <button onclick="removeTemplate(${index})" aria-label="Remove Template: ${previewText.substring(0,20)}...">
                             <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
                         </button>
                     </div>
@@ -735,10 +736,24 @@ document.addEventListener('DOMContentLoaded', () => {
   if (settingsOverlay) {
     settingsOverlay.addEventListener('click', closeSettings);
   }
+
+  // Load and apply theme from localStorage
+  const htmlElement = document.documentElement;
   const themeToggle = document.getElementById('themeToggle');
-  if (themeToggle) {
-    themeToggle.textContent = '☀️ Light Mode';
+  // currentTheme is already initialized from localStorage at the top
+
+  if (currentTheme === 'dark') {
+    htmlElement.classList.add('dark');
+    if (themeToggle) themeToggle.textContent = '🌙 Dark Mode';
+  } else { 
+    htmlElement.classList.remove('dark'); // Ensure it's not dark if not specified or light
+    if (themeToggle) themeToggle.textContent = '☀️ Light Mode';
   }
+  
+  // Apply the last used or default accent color
+  const lastAccentColor = localStorage.getItem('accentColor') || '#1a73e8';
+  setThemeColor(lastAccentColor); 
+
   const colorOptions = document.querySelectorAll('.color-option');
   if (colorOptions && colorOptions.length > 0) {
     colorOptions.forEach(option => {
@@ -748,11 +763,9 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       }
     });
-    const defaultColorOption = document.querySelector('[data-color="#1a73e8"]');
-    if (defaultColorOption) {
-      defaultColorOption.classList.add('active');
-      setThemeColor('#1a73e8');
-    }
+    // No need to set defaultColorOption active and call setThemeColor here again,
+    // as lastAccentColor and setThemeColor(lastAccentColor) above handle it.
+    // The active class will be set by setThemeColor.
   }
   const themePicker = document.querySelector('.theme-picker');
   if (themePicker) {
@@ -795,6 +808,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const autoTemplateButton = document.getElementById('autoTemplateToggle');
   const autoTemplateCopyButton = document.getElementById('autoTemplateCopyToggle');
   const autoTrackingButton = document.getElementById('autoTrackingToggle');
+  const compactModeToggle = document.getElementById('compactModeToggle');
+
   if (autoParseButton) {
     autoParseButton.textContent = `Auto-Parse: ${autoParse ? 'On' : 'Off'}`;
     autoParseButton.style.backgroundColor = autoParse ? getComputedStyle(document.documentElement).getPropertyValue('--theme-darker') : getComputedStyle(document.documentElement).getPropertyValue('--theme-primary');
@@ -812,8 +827,38 @@ document.addEventListener('DOMContentLoaded', () => {
     autoTrackingButton.textContent = `Auto-Tracking: ${autoTracking ? 'On' : 'Off'}`;
     autoTrackingButton.style.backgroundColor = autoTracking ? getComputedStyle(document.documentElement).getPropertyValue('--theme-darker') : getComputedStyle(document.documentElement).getPropertyValue('--theme-primary');
   }
+  
+
+  // Load and apply Compact Mode setting
+  isCompactMode = localStorage.getItem('compactMode') === 'true';
+  if (isCompactMode) {
+    document.body.classList.add('compact-mode');
+    if(compactModeToggle) {
+        compactModeToggle.classList.add('active');
+        compactModeToggle.title = "Disable Compact Mode";
+    }
+  } else {
+    if(compactModeToggle) compactModeToggle.title = "Enable Compact Mode";
+  }
+  if(compactModeToggle) {
+    compactModeToggle.addEventListener('click', toggleCompactMode);
+  }
+
   initColorPicker();
 });
+
+function toggleCompactMode() {
+  isCompactMode = !isCompactMode;
+  document.body.classList.toggle('compact-mode', isCompactMode);
+  localStorage.setItem('compactMode', isCompactMode);
+  const compactModeToggle = document.getElementById('compactModeToggle');
+  if (compactModeToggle) {
+    compactModeToggle.classList.toggle('active', isCompactMode);
+    // Update title or icon if needed to reflect active state
+    compactModeToggle.title = isCompactMode ? "Disable Compact Mode" : "Enable Compact Mode";
+  }
+}
+
 function initColorPicker() {
   const picker = document.getElementById('customColorPicker');
   picker.addEventListener('input', event => {
@@ -822,648 +867,21 @@ function initColorPicker() {
     event.target.parentElement.style.background = color;
   });
 }</script>
-    <style>
-        :root {
-            --theme-primary: #1a73e8;
-            --theme-secondary: #1a73e8;
-            --theme-darker: #0051C3;
-            --theme-surface: #f0f4fc;
-            --theme-surface-variant: #e8f0fe;
-            --bg-primary: #ffffff;
-            --bg-secondary: color-mix(in srgb, var(--theme-primary) 5%, #ffffff);
-            --text-primary: #202124;
-            --text-secondary: #5f6368;
-            --shadow-color: rgba(0, 0, 0, 0.2);
-        }
-
-        :root.dark {
-            --bg-primary: rgb(23, 33, 43); /* New dark mode background color */
-            --bg-secondary: rgb(23, 33, 43);
-            --text-primary: #e8eaed;
-            --text-secondary: #9aa0a6;
-            --theme-surface: color-mix(in srgb, var(--theme-primary) 8%, var(--bg-secondary));
-            --theme-surface-variant: color-mix(in srgb, var(--theme-darker) 12%, var(--bg-secondary));
-            --shadow-color: rgba(0, 0, 0, 0.4);
-        }
-
-        /* Update the title styling to override theme gradient in dark mode */
-        :root.dark h1 {
-            background: none;
-            -webkit-background-clip: unset;
-            background-clip: unset;
-            -webkit-text-fill-color: white;
-            color: white;
-        }
-
-        body {
-            margin: 0;
-            padding: 20px;
-            min-height: 100vh;
-            overflow-x: hidden;
-            font-family: 'Google Sans', Arial, sans-serif;
-            background-color: var(--bg-primary);
-            color: var(--text-primary);
-            transition: all 0.3s ease;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-
-        .container {
-            width: calc(100% - 30px);
-            max-width: 890px;
-            min-width: 320px;
-            padding: 20px;
-            height: calc(100vh - 100px);
-            background-color: var(--bg-primary);
-            border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-            margin: 15px auto;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
-
-        .container.with-background {
-            background: rgba(255, 255, 255, 0.8);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-        }
-
-        :root.dark .container.with-background {
-            background: rgba(41, 42, 45, 0.8);
-        }
-
-        body.with-background {
-            background-size: cover;
-            background-position: center;
-            background-repeat: no-repeat;
-            background-attachment: fixed;
-        }
-
-        .header-section {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            width: 100%;
-            margin-bottom: 15px;
-        }
-
-        h1 {
-            margin-left: 0px;
-            color: var(--theme-primary);
-            font-size: 26px;
-            line-height: 40px;
-            font-weight: 500;
-            background: linear-gradient(to right, var(--theme-primary), var(--theme-darker));
-            -webkit-background-clip: text;
-            background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        :root.dark h1 {
-            background: none;
-            -webkit-background-clip: unset;
-            background-clip: unset;
-            -webkit-text-fill-color: white;
-            color: white;
-        }
-
-        .settings-button {
-            width: 40px;
-            height: 40px;
-            padding: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            border-radius: 50%;
-            background: transparent;
-            transition: background-color 0.3s ease;
-            gap: 4px;
-        }
-
-        .settings-button:hover {
-            background-color: rgba(60, 64, 67, 0.08);
-        }
-
-        .settings-button span {
-            display: block;
-            width: 18px;
-            height: 2px;
-            background-color: var(--text-primary);
-            transition: all 0.3s ease;
-        }
-
-        button {
-            background-color: var(--theme-primary);
-            color: white;
-            padding: 10px 20px;
-            border: none;
-            border-radius: 50px;
-            cursor: pointer;
-            margin: 5px;
-            transition: all 0.3s ease;
-            font-family: 'Google Sans', Arial, sans-serif;
-            position: relative;
-            overflow: hidden;
-        }
-
-        button:hover {
-            background-color: var(--theme-darker);
-            transform: translateY(-1px);
-            box-shadow: 0 1px 2px rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
-        }
-
-        button:disabled {
-            background-color: rgba(0, 0, 0, 0.12);
-            color: rgba(0, 0, 0, 0.38);
-            cursor: not-allowed;
-            pointer-events: none;
-        }
-
-        .dark button:disabled {
-            background-color: rgba(255, 255, 255, 0.12);
-            color: rgba(255, 255, 255, 0.38);
-        }
-
-        textarea, #output {
-            width: 100%;
-            margin-right: 0;
-            box-sizing: border-box;
-            border: 1px solid #dadce0;  /* Default light mode border */
-            transition: border-color 0.3s ease;  /* Smooth transition for border changes */
-        }
-
-        :root.dark textarea,
-        :root.dark #output {
-            background-color: rgb(36, 47, 61);
-            border-color: transparent;  /* Change from rgba(255, 255, 255, 0.1) to transparent */
-            color: var(--text-primary);
-        }
-
-        :root.dark textarea:focus {
-            outline: none;  /* Remove focus outline in dark mode */
-            border-color: transparent;  /* Keep border transparent even on focus */
-        }
-
-        textarea {
-            height: 200px;
-            padding: 12px;
-            border: 1px solid #dadce0;
-            border-radius: 12px;
-            background-color: var(--bg-primary);
-            color: var(--text-primary);
-            resize: vertical;
-            font-family: monospace;
-            line-height: 1.5;
-            margin-bottom: 10px;
-        }
-
-        textarea::-webkit-scrollbar,
-        #output::-webkit-scrollbar {
-            width: 12px;
-        }
-
-        textarea::-webkit-scrollbar-track,
-        #output::-webkit-scrollbar-track {
-            background: var(--bg-secondary);
-            border-radius: 10px;
-        }
-
-        textarea::-webkit-scrollbar-thumb,
-        #output::-webkit-scrollbar-thumb {
-            background: var(--theme-primary);
-            border-radius: 10px;
-            border: 3px solid var(--bg-secondary);
-        }
-
-        textarea::-webkit-scrollbar-thumb:hover,
-        #output::-webkit-scrollbar-thumb:hover {
-            background: var(--theme-darker);
-        }
-
-        #output {
-            height: calc(100vh - 460px);
-            overflow-y: auto;
-            padding: 16px;
-            border: 1px solid #dadce0;
-            border-radius: 12px;
-            margin-top: 10px;
-            font-family: monospace;
-            white-space: pre-wrap;
-            line-height: 1.5;
-            margin-bottom: 10px;
-        }
-
-        .button-group {
-            width: 100%;
-            padding: 0;
-            flex-wrap: wrap;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .left-buttons {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .right-buttons {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-right: 2px;
-        }
-
-        #templateCount {
-            font-weight: 500;
-            color: var(--text-primary);
-        }
-
-        .ripple {
-            position: absolute;
-            background: rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-            transform: scale(0);
-            animation: rippleAnimation 0.6s linear;
-            pointer-events: none;
-        }
-
-        @keyframes rippleAnimation {
-            to {
-                transform: scale(4);
-                opacity: 0;
-            }
-        }
-
-        .settings-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.5);
-            display: none;
-            z-index: 1000;
-        }
-
-        .settings-overlay.open {
-            display: block;
-        }
-
-        .settings-popup {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: var(--bg-primary);
-            border-radius: 12px;
-            box-shadow: 0 8px 20px var(--shadow-color);
-            z-index: 1001;
-            display: none;
-            width: 800px;
-            height: 600px;
-            max-height: 80vh;
-            overflow: hidden; /* Prevent content overflow */
-        }
-
-        .settings-popup.open {
-            display: flex;
-        }
-
-        /* Update the settings header to stay fixed */
-        .settings-header {
-            position: sticky;
-            top: 0;
-            background: var(--bg-primary);
-            z-index: 2;
-            padding: 20px;
-            border-bottom: 1px solid var(--theme-surface);
-        }
-
-        .settings-content {
-            flex: 1;
-            padding: 20px;
-            overflow-y: auto;
-            max-height: calc(100vh - 140px);
-        }
-
-        /* Update scrollbar styling for settings-content */
-        .settings-content::-webkit-scrollbar {
-            width: 0px; /* Change from 8px to 0px to hide scrollbar */
-            display: none; /* Completely hide the scrollbar */
-        }
-
-        /* Add Firefox compatibility */
-        .settings-content {
-            scrollbar-width: none; /* For Firefox */
-            -ms-overflow-style: none;  /* For Internet Explorer and Edge */
-        }
-
-        /* Update settings panels to maintain consistent height */
-        .settings-panel {
-            height: 100%;
-            display: none;
-            padding-bottom: 20px;
-        }
-
-        .settings-panel.active {
-            display: block;
-        }
-
-        /* Settings group spacing */
-        .auto-settings-group, .keyword-input-container {
-            margin-bottom: 24px;
-        }
-
-        .setting-item {
-            margin-bottom: 16px;
-        }
-
-        .setting-description {
-            margin: 8px 0 0 0;
-            font-size: 14px;
-            color: var(--text-secondary);
-        }
-
-        /* Modern scrollbar styling for settings content */
-        .settings-content::-webkit-scrollbar {
-            width: 8px;
-        }
-
-        .settings-content::-webkit-scrollbar-track {
-            background: var(--bg-secondary);
-            border-radius: 4px;
-        }
-
-        .settings-content::-webkit-scrollbar-thumb {
-            background: var(--theme-primary);
-            border-radius: 4px;
-            border: 2px solid var(--bg-secondary);
-        }
-
-        .settings-content::-webkit-scrollbar-thumb:hover {
-            background: var(--theme-darker);
-        }
-
-        /* Update sidebar styling */
-        .settings-sidebar {
-            width: 200px;
-            border-right: 1px solid var(--theme-surface);
-            padding: 20px 0;
-            background: var(--theme-surface);
-            flex-shrink: 0; /* Prevent sidebar from shrinking */
-        }
-
-        .settings-sidebar-item {
-            padding: 12px 20px;
-            cursor: pointer;
-            color: var(--text-primary);
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            transition: all 0.2s ease;
-        }
-
-        .settings-sidebar-item svg {
-            width: 20px;
-            height: 20px;
-            fill: currentColor;
-        }
-
-        .settings-sidebar-item:hover {
-            background: var(--theme-surface-variant);
-        }
-
-        .settings-sidebar-item.active {
-            background: var(--theme-surface-variant);
-            color: var(--theme-primary);
-            position: relative;
-        }
-
-        .settings-sidebar-item.active::after {
-            content: '';
-            position: absolute;
-            right: 0;
-            top: 0;
-            height: 100%;
-            width: 3px;
-            background: var(--theme-primary);
-        }
-
-        /* Update section headers */
-        .settings-panel h3 {
-            font-size: 16px;
-            font-weight: 500;
-            margin: 0 0 16px 0;
-            color: var(--text-primary);
-        }
-
-        /* Settings groups spacing */
-        .template-interval-setting {
-            margin-top: 20px;
-        }
-
-        .template-interval-setting input {
-            width: 60px;
-            padding: 8px;
-            margin-right: 10px;
-            border: 1px solid var(--theme-surface);
-            border-radius: 4px;
-        }
-
-        .color-options-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
-            gap: 10px;
-            margin: 15px 0;
-        }
-
-        .color-option {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            cursor: pointer;
-            border: 2px solid transparent;
-            transition: all 0.2s ease;
-        }
-
-        .color-option.active {
-            border-color: var(--text-primary);
-            transform: scale(1.1);
-        }
-
-        .upload-label {
-            display: inline-block;
-            padding: 10px 20px;
-            background: var(--theme-primary);
-            color: white;
-            border-radius: 50px;
-            cursor: pointer;
-            margin: 10px 0;
-        }
-
-        #backgroundUpload {
-            display: none;
-        }
-
-        .remove-bg {
-            display: none;
-        }
-
-        .remove-bg.visible {
-            display: inline-block;
-        }
-
-        .keyword-input-container {
-            margin-bottom: 20px;
-        }
-
-        .keyword-input-container input,
-        .keyword-input-container textarea {
-            width: calc(100% - 100px);
-            padding: 8px;
-            margin-right: 10px;
-            border: 1px solid var(--theme-surface);
-            border-radius: 4px;
-        }
-
-        .keywords-list {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
-        .keyword-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 8px 12px;
-            background: var(--theme-surface);
-            border-radius: 8px;
-        }
-
-        .item-actions {
-            display: flex;
-            gap: 8px;
-        }
-
-        .item-actions button {
-            padding: 6px;
-            margin: 0;
-            background: transparent;
-            color: var(--text-primary);
-        }
-
-        .item-actions button:hover {
-            background: var(--theme-surface-variant);
-        }
-
-        .item-actions svg {
-            width: 20px;
-            height: 20px;
-            fill: currentColor;
-        }
-
-        .version-history::-webkit-scrollbar {
-            width: 12px;
-        }
-
-        .version-history::-webkit-scrollbar-track {
-            background: var(--bg-secondary);
-            border-radius: 10px;
-        }
-
-        .version-history::-webkit-scrollbar-thumb {
-            background: var(--theme-primary);
-            border-radius: 10px;
-            border: 3px solid var(--bg-secondary);
-        }
-
-        .version-history::-webkit-scrollbar-thumb:hover {
-            background: var(--theme-darker);
-        }
-
-        /* Add Firefox compatibility */
-        .version-history {
-            scrollbar-color: var(--theme-primary) var(--bg-secondary);
-            scrollbar-width: thin;
-        }
-        
-        button:disabled {
-            background-color: color-mix(in srgb, var(--theme-primary) 40%, white) !important;
-            color: white !important;
-            cursor: not-allowed;
-            pointer-events: none;
-            opacity: 0.7;
-        }
-
-        .dark button:disabled {
-            background-color: color-mix(in srgb, var(--theme-primary) 30%, var(--bg-primary)) !important;
-            color: rgba(255, 255, 255, 0.6) !important;
-        }
-        
-        .template-item.dragging {
-          opacity: 0.5;
-        }
-
-        .templates-list.drag-over {
-          background: var(--theme-surface-variant);
-          border-style: solid;
-        }
-        
-        .automation-flow {
-          background: var(--theme-surface);
-          border-radius: 12px;
-          padding: 20px;
-          margin-bottom: 20px;
-        }
-
-        .automation-step {
-          margin-bottom: 20px;
-        }
-
-        .automation-step:last-child {
-          margin-bottom: 0;
-        }
-
-        .automation-step h4 {
-          color: var(--text-primary);
-          margin: 0 0 10px 0;
-          font-size: 14px;
-          font-weight: 500;
-        }
-
-        .dependent-setting {
-          position: relative;
-          padding-left: 20px;
-        }
-
-        .dependent-setting:before {
-          content: '';
-          position: absolute;
-          left: 0;
-          top: -10px;
-          bottom: 0;
-          width: 2px;
-          background: var(--theme-primary);
-        }
-    </style>
 </head>
 <body>
     <div class="container">
         <div class="header-section">
             <h1>Amazon Shipment Data Parser</h1>
-            <button class="settings-button" onclick="toggleSettings()">
-                <span></span>
-                <span></span>
-                <span></span>
-            </button>
+            <div class="header-buttons"> 
+                <button id="compactModeToggle" title="Toggle Compact Mode" class="settings-button" aria-label="Toggle Compact Mode">
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="20px" height="20px"><path d="M10.586 13.414l-2.586-2.586L6 12.828V18h5.172l-2-2 2.586-2.586zm2.828-2.828L15.414 8H10V6h8v8h-2v-5.414l-2.586 2.586-1.414-1.414zM6 6h2v2H6V6zm2 4H6v2h2v-2zm-2 4H6v2h2v-2zm12-2h2v-2h-2v2zm-2-4h2V8h-2v2zm2-2v-2h-2v2h2z"/></svg>
+                </button>
+                <button class="settings-button" onclick="toggleSettings()" aria-label="Open Settings">
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="20px" height="20px"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69-.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19-.15-.24-.42-.12-.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69-.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>
+                </button>
+            </div>
         </div>
-        <textarea id="shipmentInput" placeholder="Paste your shipment data here (including Removal order ID)..." style="outline: none;"></textarea>
+        <textarea id="shipmentInput" placeholder="Paste your shipment data here (including Removal order ID)..."></textarea>
         <div class="button-group">
             <div class="left-buttons">
                 <button onclick="parseShipmentData()" class="primary">Parse</button>
@@ -1474,7 +892,7 @@ function initColorPicker() {
             </div>
             <div class="right-buttons">
                 <div id="templateCount">0</div>
-                <button id="copyButton" onclick="copyOutput()" disabled>Copy</button>
+                <button id="copyButton" onclick="copyOutput()" disabled>Copy <svg viewBox="0 0 24 24" fill="currentColor" width="16px" height="16px"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg></button>
             </div>
         </div>
         <div id="output"></div>
@@ -1482,12 +900,10 @@ function initColorPicker() {
     <div class="settings-overlay"></div>
     <div class="settings-popup">
         <div class="settings-sidebar">
-            <h2 style="color: var(--text-primary); margin: 0 0 20px 20px; font-size: 20px; display: flex; justify-content: space-between; align-items: center;">
+            <h2 class="sidebar-title"> 
                 Settings
-                <button onclick="closeSettings()" style="background: transparent; color: var(--text-primary); padding: 8px; margin: 0; min-width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;">
-                    <svg viewBox="0 0 24 24" style="width: 24px; height: 24px; fill: currentColor;">
-                        <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-                    </svg>
+                <button onclick="closeSettings()" aria-label="Close Settings"> 
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="18px" height="18px"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
                 </button>
             </h2>
             <div class="settings-sidebar-item active" data-panel="appearance" onclick="showSettingsPanel(&apos;appearance&apos;)">
@@ -1514,7 +930,7 @@ function initColorPicker() {
         <div class="settings-content">
             <div id="appearance" class="settings-panel active" style="padding-top: 20px;">
                 <h3>Theme</h3>
-                <button id="themeToggle" onclick="toggleTheme()">&#x2600;&#xfe0f; Light Mode</button>
+                <button id="themeToggle" onclick="toggleTheme()">☀️ Light Mode</button>
                 <h3>Color Theme</h3>
                 <div class="color-options-grid">
                     <div class="color-option active" data-color="#1a73e8" style="background-color: #1a73e8;"></div>
@@ -1535,8 +951,8 @@ function initColorPicker() {
                 </div>
                 <h3>Background</h3>
                 <input type="file" id="backgroundUpload" accept="image/*" onchange="handleBackgroundUpload(event)">
-                <label for="backgroundUpload" class="upload-label">Upload Background</label>
-                <button class="remove-bg" onclick="removeBackground()">Remove Background</button>
+                <label for="backgroundUpload" class="upload-label">Upload Background <svg viewBox="0 0 24 24" fill="currentColor" width="16px" height="16px"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg></label>
+                <button class="remove-bg" onclick="removeBackground()">Remove Background <svg viewBox="0 0 24 24" fill="currentColor" width="16px" height="16px"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm5-9H7v-2h10v2z"/></svg></button>
             </div>
 
             <div id="automation" class="settings-panel" style="padding-top: 20px;">
@@ -1579,7 +995,7 @@ function initColorPicker() {
                 <h3>Templates</h3>
                 <div class="keyword-input-container">
                     <textarea id="templateInput" placeholder="Add new template message..."></textarea>
-                    <button onclick="addTemplate()">Add</button>
+                    <button onclick="addTemplate()">Add <svg viewBox="0 0 24 24" fill="currentColor" width="16px" height="16px"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg></button>
                 </div>
                 
                 <div class="templates-container">
@@ -1637,7 +1053,7 @@ function initColorPicker() {
                 <h3>Tracking Keywords</h3>
                 <div class="keyword-input-container">
                     <input type="text" id="keywordInput" placeholder="Add new keyword...">
-                    <button onclick="addKeyword()">Add</button>
+                    <button onclick="addKeyword()">Add <svg viewBox="0 0 24 24" fill="currentColor" width="16px" height="16px"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg></button>
                 </div>
                 <div id="keywordsList" class="keywords-list">
                     <!-- Keywords will be dynamically added here -->
@@ -1775,3 +1191,1478 @@ function initColorPicker() {
         </div>
     </div>
 </body></html>
+
+[end of index.html]
+
+[start of style.css]
+:root {
+    /* macOS-inspired Color Palette - Light Mode */
+    --background-color-light: #f6f6f6;
+    --text-color-light: #333333;
+    --accent-color: #007aff;
+    --container-background-light: #ffffff;
+    --border-color-light: #cccccc;
+    --sidebar-background-light: #ededed; 
+    --item-hover-background-light: rgba(0,0,0,0.05); 
+    --item-active-background-light: var(--accent-color); 
+    --button-secondary-background-light: #e9e9e9;
+    --button-secondary-hover-light: #dcdcdc;
+    --placeholder-text-color-light: rgba(0,0,0,0.4);
+    --focus-ring-color: rgba(0, 122, 255, 0.3); /* Accent color with opacity for focus rings */
+
+    --theme-primary: var(--accent-color); 
+    --theme-secondary: var(--accent-color);
+    --theme-darker: color-mix(in srgb, var(--accent-color) 80%, black); 
+    --theme-surface: var(--container-background-light); 
+    --theme-surface-variant: color-mix(in srgb, var(--container-background-light) 90%, black); 
+    
+    --bg-primary: var(--container-background-light); 
+    --bg-secondary: var(--background-color-light); 
+    --text-primary: var(--text-color-light); 
+    --text-secondary: color-mix(in srgb, var(--text-color-light) 70%, white);
+    --shadow-color: rgba(0, 0, 0, 0.1); 
+}
+
+:root.dark {
+    /* macOS-inspired Color Palette - Dark Mode */
+    --background-color-dark: #2e2e2e;
+    --text-color-dark: #f5f5f5;
+    --container-background-dark: #3b3b3b;
+    --border-color-dark: #555555;
+    --sidebar-background-dark: #353535; 
+    --item-hover-background-dark: rgba(255,255,255,0.08);
+    --item-active-background-dark: var(--accent-color);
+    --button-secondary-background-dark: #4a4a4a;
+    --button-secondary-hover-dark: #5a5a5a;
+    --placeholder-text-color-dark: rgba(255,255,255,0.4);
+    --focus-ring-color: rgba(0, 122, 255, 0.4); /* Accent color with opacity for focus rings - dark */
+
+
+    --theme-primary: var(--accent-color);
+    --theme-secondary: var(--accent-color);
+    --theme-darker: color-mix(in srgb, var(--accent-color) 80%, black);
+    --theme-surface: var(--container-background-dark);
+    --theme-surface-variant: color-mix(in srgb, var(--container-background-dark) 90%, white);
+
+    --bg-primary: var(--container-background-dark);
+    --bg-secondary: var(--background-color-dark);
+    --text-primary: var(--text-color-dark);
+    --text-secondary: color-mix(in srgb, var(--text-color-dark) 70%, black);
+    --shadow-color: rgba(0, 0, 0, 0.3); 
+}
+
+body {
+    margin: 0;
+    padding: 20px;
+    min-height: 100vh;
+    overflow-x: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+    background-color: var(--background-color-light);
+    color: var(--text-color-light);
+    transition: background-color 0.3s ease, color 0.3s ease; 
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    line-height: 1.5; /* Improved base line-height */
+}
+
+:root.dark body {
+    background-color: var(--background-color-dark);
+    color: var(--text-color-dark);
+}
+
+.container {
+    width: calc(100% - 30px);
+    max-width: 890px;
+    min-width: 320px;
+    padding: 20px;
+    height: calc(100vh - 100px); 
+    background-color: var(--container-background-light);
+    border-radius: 10px; 
+    box-shadow: 0 8px 24px var(--shadow-color); /* Adjusted shadow for more depth */
+    border: 1px solid var(--border-color-light);
+    margin: 15px auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease; 
+}
+
+:root.dark .container {
+    background-color: var(--container-background-dark);
+    border: 1px solid var(--border-color-dark);
+}
+
+.container.with-background {
+    background: rgba(255, 255, 255, 0.8); 
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+:root.dark .container.with-background {
+    background: rgba(41, 42, 45, 0.8); 
+}
+
+body.with-background {
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+}
+
+.header-section {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    margin-bottom: 15px;
+}
+.header-buttons { 
+    display: flex;
+    align-items: center;
+    gap: 8px; 
+}
+
+h1 {
+    margin-left: 0px;
+    font-size: 24px; /* Slightly reduced for balance */
+    line-height: 1.3; /* Adjusted line height */
+    font-weight: 600; /* Slightly bolder for title */
+    color: var(--text-primary); /* Mapped to new var */
+    background: none; 
+    -webkit-background-clip: unset;
+    background-clip: unset;
+    -webkit-text-fill-color: unset;
+    transition: color 0.3s ease; 
+}
+
+:root.dark h1 {
+    color: var(--text-primary); /* Mapped to new var */
+}
+
+/* General Button Styling */
+button {
+    border-radius: 6px;
+    padding: 8px 16px; 
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out, color 0.15s ease-in-out, box-shadow 0.15s ease-in-out, transform 0.1s ease-out; /* Faster transitions */
+    font-family: inherit; 
+    position: relative;
+    overflow: visible; /* Allow focus ring to be visible */
+    border: 1px solid transparent; 
+    margin: 5px; 
+    display: inline-flex; 
+    align-items: center; 
+    justify-content: center; 
+}
+button:focus-visible {
+    outline: 3px solid var(--focus-ring-color); /* Clearer focus ring */
+    outline-offset: 2px;
+}
+
+button:active { 
+    transform: translateY(1px);
+    box-shadow: inset 0 1px 1px rgba(0,0,0,0.05);
+}
+
+
+button:disabled,
+button:disabled:hover { 
+    background-color: color-mix(in srgb, var(--text-color-light) 20%, var(--background-color-light)) !important;
+    color: color-mix(in srgb, var(--text-color-light) 50%, var(--background-color-light)) !important;
+    border-color: color-mix(in srgb, var(--text-color-light) 30%, var(--background-color-light)) !important;
+    cursor: not-allowed;
+    opacity: 0.6; 
+    transform: none; 
+    box-shadow: none; 
+}
+
+:root.dark button:disabled,
+:root.dark button:disabled:hover { 
+    background-color: color-mix(in srgb, var(--text-color-dark) 20%, var(--background-color-dark)) !important;
+    color: color-mix(in srgb, var(--text-color-dark) 50%, var(--background-color-dark)) !important;
+    border-color: color-mix(in srgb, var(--text-color-dark) 30%, var(--background-color-dark)) !important;
+}
+
+/* Primary Buttons */
+button.primary, 
+button[onclick="parseShipmentData()"], 
+button[onclick="parseTrackingOnly()"], 
+#copyButton,
+.edit-popup button:last-child { 
+    background-color: var(--accent-color);
+    color: white;
+    border: 1px solid var(--accent-color);
+}
+
+button.primary:hover:not(:disabled), 
+button[onclick="parseShipmentData()"]:hover:not(:disabled), 
+button[onclick="parseTrackingOnly()"]:hover:not(:disabled), 
+#copyButton:hover:not(:disabled),
+.edit-popup button:last-child:hover:not(:disabled) { 
+    background-color: color-mix(in srgb, var(--accent-color) 85%, black);
+    border-color: color-mix(in srgb, var(--accent-color) 85%, black);
+}
+
+/* Secondary/Default Buttons */
+button.secondary,
+button[onclick="clearData()"],
+button[onclick="toggleTemplateToAll()"],
+button[onclick="toggleTemplateEveryTwo()"],
+.upload-label, 
+button.remove-bg,
+.check-update-btn,
+.edit-popup button:first-child { 
+    background-color: var(--button-secondary-background-light);
+    color: var(--text-color-light);
+    border: 1px solid var(--border-color-light);
+}
+
+button.secondary:hover:not(:disabled),
+button[onclick="clearData()"]:hover:not(:disabled),
+button[onclick="toggleTemplateToAll()"]:hover:not(:disabled),
+button[onclick="toggleTemplateEveryTwo()"]:hover:not(:disabled),
+.upload-label:hover, 
+button.remove-bg:hover:not(:disabled),
+.check-update-btn:hover:not(:disabled),
+.edit-popup button:first-child:hover:not(:disabled) {
+    background-color: var(--button-secondary-hover-light); 
+    border-color: color-mix(in srgb, var(--border-color-light) 80%, black); 
+}
+
+:root.dark button.secondary,
+:root.dark button[onclick="clearData()"],
+:root.dark button[onclick="toggleTemplateToAll()"],
+:root.dark button[onclick="toggleTemplateEveryTwo()"],
+:root.dark .upload-label,
+:root.dark button.remove-bg,
+:root.dark .check-update-btn,
+:root.dark .edit-popup button:first-child {
+    background-color: var(--button-secondary-background-dark);
+    color: var(--text-color-dark);
+    border: 1px solid var(--border-color-dark);
+}
+
+:root.dark button.secondary:hover:not(:disabled),
+:root.dark button[onclick="clearData()"]:hover:not(:disabled),
+:root.dark button[onclick="toggleTemplateToAll()"]:hover:not(:disabled),
+:root.dark button[onclick="toggleTemplateEveryTwo()"]:hover:not(:disabled),
+:root.dark .upload-label:hover,
+:root.dark button.remove-bg:hover:not(:disabled),
+:root.dark .check-update-btn:hover:not(:disabled),
+:root.dark .edit-popup button:first-child:hover:not(:disabled) {
+    background-color: var(--button-secondary-hover-dark); 
+    border-color: color-mix(in srgb, var(--border-color-dark) 80%, white); 
+}
+
+/* Button with Icon Styling */
+button svg, .upload-label svg {
+    margin-left: 8px; 
+    vertical-align: middle; 
+    width: 1em; 
+    height: 1em;
+    fill: currentColor; 
+}
+.settings-button svg, 
+.item-actions button svg, 
+.settings-popup .settings-header button svg, 
+.settings-sidebar h2 button svg {
+    margin-left: 0; 
+}
+
+
+/* Settings Button (Gear Icon & Compact Mode Toggle) */
+.settings-button {
+    background: transparent;
+    border: none;
+    color: var(--text-primary); /* Mapped */
+    padding: 6px; 
+    border-radius: 50%; 
+    width: 36px; 
+    height: 36px; 
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0; 
+    transition: background-color 0.15s ease, color 0.15s ease; 
+}
+.settings-button span { 
+    display: none; 
+}
+.settings-button svg { 
+    width: 20px; 
+    height: 20px;
+    fill: currentColor;
+}
+.settings-button:hover {
+     background-color: var(--item-hover-background-light);
+}
+.settings-button.active { 
+    background-color: var(--accent-color) !important;
+    color: white !important;
+}
+.settings-button.active:hover {
+    background-color: color-mix(in srgb, var(--accent-color) 85%, black) !important;
+}
+
+:root.dark .settings-button {
+    color: var(--text-primary); /* Mapped */
+}
+:root.dark .settings-button:hover {
+    background-color: var(--item-hover-background-dark);
+}
+:root.dark .settings-button.active {
+    background-color: var(--accent-color) !important;
+    color: white !important;
+}
+:root.dark .settings-button.active:hover {
+    background-color: color-mix(in srgb, var(--accent-color) 85%, black) !important;
+}
+
+
+/* Icon Buttons (e.g., in item actions, settings close) */
+.item-actions button,
+.settings-popup .settings-header button, 
+.settings-sidebar h2 button { 
+    background: transparent;
+    border: none;
+    color: var(--text-primary); /* Mapped */
+    padding: 6px;
+    border-radius: 50%; 
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    transition: background-color 0.15s ease, color 0.15s ease; 
+}
+.item-actions button:hover,
+.settings-popup .settings-header button:hover,
+.settings-sidebar h2 button:hover {
+    background-color: var(--item-hover-background-light); 
+    color: var(--accent-color); 
+}
+:root.dark .item-actions button,
+:root.dark .settings-popup .settings-header button,
+:root.dark .settings-sidebar h2 button {
+    color: var(--text-primary); /* Mapped */
+}
+:root.dark .item-actions button:hover,
+:root.dark .settings-popup .settings-header button:hover,
+:root.dark .settings-sidebar h2 button:hover {
+    background-color: var(--item-hover-background-dark);
+    color: var(--accent-color);
+}
+.item-actions svg, 
+.settings-popup .settings-header button svg,
+.settings-sidebar h2 button svg {
+    width: 18px; 
+    height: 18px;
+    fill: currentColor;
+}
+.settings-popup .settings-header button svg { 
+    width: 16px; 
+    height: 16px;
+}
+.settings-sidebar h2 button svg { 
+    width: 16px; 
+    height: 16px;
+}
+
+
+textarea, #output, 
+.settings-content input[type="text"], 
+.settings-content input[type="number"], 
+.settings-content textarea {
+    width: 100%;
+    margin-right: 0;
+    box-sizing: border-box;
+    border: 1px solid var(--border-color-light);
+    transition: border-color 0.3s ease, background-color 0.3s ease, color 0.3s ease, box-shadow 0.2s ease-in-out; 
+    background-color: var(--container-background-light);
+    color: var(--text-color-light);
+    border-radius: 6px; 
+    padding: 10px;     
+    font-family: monospace; 
+    line-height: 1.5;
+}
+textarea#shipmentInput, div#output {
+    margin-bottom: 10px;
+}
+textarea#shipmentInput {
+    margin-top: 0; 
+}
+div#output {
+    margin-top: 10px;
+}
+
+
+:root.dark textarea,
+:root.dark #output,
+:root.dark .settings-content input[type="text"], 
+:root.dark .settings-content input[type="number"], 
+:root.dark .settings-content textarea {
+    background-color: var(--container-background-dark);
+    border-color: var(--border-color-dark);
+    color: var(--text-color-dark);
+}
+
+textarea:focus, #output:focus,
+.settings-content input[type="text"]:focus, 
+.settings-content input[type="number"]:focus, 
+.settings-content textarea:focus { 
+    outline: 3px solid var(--focus-ring-color); 
+    outline-offset: 1px; 
+    border-color: var(--accent-color); 
+}
+
+textarea#shipmentInput { 
+    height: 200px; 
+    resize: vertical;
+}
+#output { 
+    height: calc(100vh - 460px); 
+    overflow-y: auto;
+    white-space: pre-wrap;
+}
+.settings-content textarea { 
+    min-height: 80px;
+    resize: vertical;
+}
+
+/* Placeholder text color */
+textarea::placeholder,
+input::placeholder {
+    color: var(--placeholder-text-color-light);
+    opacity: 1; 
+    transition: color 0.3s ease; 
+}
+:root.dark textarea::placeholder,
+:root.dark input::placeholder {
+    color: var(--placeholder-text-color-dark);
+    opacity: 1; 
+}
+textarea:-ms-input-placeholder, 
+input:-ms-input-placeholder { 
+    color: var(--placeholder-text-color-light);
+    transition: color 0.3s ease; 
+}
+:root.dark textarea:-ms-input-placeholder, 
+:root.dark input:-ms-input-placeholder { 
+    color: var(--placeholder-text-color-dark);
+}
+
+/* macOS-style Scrollbars */
+textarea::-webkit-scrollbar,
+#output::-webkit-scrollbar,
+.settings-content::-webkit-scrollbar,
+.version-history::-webkit-scrollbar,
+.settings-sidebar::-webkit-scrollbar { 
+    width: 8px; 
+    height: 8px;
+}
+textarea::-webkit-scrollbar-track,
+#output::-webkit-scrollbar-track,
+.settings-content::-webkit-scrollbar-track,
+.version-history::-webkit-scrollbar-track,
+.settings-sidebar::-webkit-scrollbar-track { 
+    background: transparent;
+}
+textarea::-webkit-scrollbar-thumb,
+#output::-webkit-scrollbar-thumb,
+.settings-content::-webkit-scrollbar-thumb,
+.version-history::-webkit-scrollbar-thumb,
+.settings-sidebar::-webkit-scrollbar-thumb { 
+    background-color: rgba(0,0,0,0.3);
+    border-radius: 4px;
+    transition: background-color 0.3s ease; 
+}
+textarea::-webkit-scrollbar-thumb:hover,
+#output::-webkit-scrollbar-thumb:hover,
+.settings-content::-webkit-scrollbar-thumb:hover,
+.version-history::-webkit-scrollbar-thumb:hover,
+.settings-sidebar::-webkit-scrollbar-thumb:hover { 
+    background-color: rgba(0,0,0,0.5);
+}
+:root.dark textarea::-webkit-scrollbar-thumb,
+:root.dark #output::-webkit-scrollbar-thumb,
+:root.dark .settings-content::-webkit-scrollbar-thumb,
+:root.dark .version-history::-webkit-scrollbar-thumb,
+:root.dark .settings-sidebar::-webkit-scrollbar-thumb { 
+    background-color: rgba(255,255,255,0.3);
+}
+:root.dark textarea::-webkit-scrollbar-thumb:hover,
+:root.dark #output::-webkit-scrollbar-thumb:hover,
+:root.dark .settings-content::-webkit-scrollbar-thumb:hover,
+:root.dark .version-history::-webkit-scrollbar-thumb:hover,
+:root.dark .settings-sidebar::-webkit-scrollbar-thumb:hover { 
+    background-color: rgba(255,255,255,0.5);
+}
+textarea, #output, .settings-content, .version-history, .settings-sidebar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0,0,0,0.3) transparent;
+}
+:root.dark textarea, :root.dark #output, :root.dark .settings-content, :root.dark .version-history, :root.dark .settings-sidebar {
+    scrollbar-color: rgba(255,255,255,0.3) transparent;
+}
+
+
+.button-group {
+    width: 100%;
+    padding: 0;
+    flex-wrap: wrap;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.left-buttons, .right-buttons {
+    display: flex;
+    align-items: center;
+    gap: 8px; 
+}
+
+.right-buttons {
+    margin-right: 2px;
+}
+
+#templateCount {
+    font-weight: 500;
+    color: var(--text-primary); 
+    transition: color 0.3s ease; 
+}
+
+.ripple {
+    position: absolute;
+    background: rgba(255, 255, 255, 0.3); 
+    border-radius: 50%;
+    transform: scale(0);
+    animation: rippleAnimation 0.6s linear;
+    pointer-events: none;
+}
+
+@keyframes rippleAnimation {
+    to {
+        transform: scale(4);
+        opacity: 0;
+    }
+}
+
+.settings-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.3); 
+    display: none;
+    z-index: 1000;
+    transition: background-color 0.3s ease; 
+}
+:root.dark .settings-overlay {
+    background: rgba(0, 0, 0, 0.5); 
+}
+
+
+.settings-popup {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--container-background-light); 
+    border-radius: 12px; 
+    box-shadow: 0 12px 28px var(--shadow-color); 
+    z-index: 1001;
+    display: none;
+    width: 800px;
+    height: 600px;
+    max-height: 80vh;
+    overflow: hidden; 
+    border: 1px solid var(--border-color-light); 
+    transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease; 
+}
+:root.dark .settings-popup {
+    background: var(--container-background-dark);
+    border: 1px solid var(--border-color-dark);
+}
+
+.settings-popup.open {
+    display: flex; 
+    flex-direction: column; 
+}
+
+.settings-popup .settings-header { 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center; 
+    background: var(--sidebar-background-light); 
+    z-index: 2;
+    padding: 10px 15px; 
+    border-bottom: 1px solid var(--border-color-light); 
+    flex-shrink: 0; 
+    transition: background-color 0.3s ease, border-color 0.3s ease; 
+}
+:root.dark .settings-popup .settings-header {
+    background: var(--sidebar-background-dark);
+    border-bottom: 1px solid var(--border-color-dark);
+}
+.settings-popup .settings-header h2 { 
+    margin: 0;
+    font-size: 16px; 
+    font-weight: 500;
+    color: var(--text-primary);
+    transition: color 0.3s ease; 
+}
+:root.dark .settings-popup .settings-header h2 {
+    color: var(--text-color-dark);
+}
+
+
+.settings-body { 
+    display: flex;
+    flex-grow: 1; 
+    overflow: hidden; 
+}
+
+.settings-sidebar {
+    width: 200px;
+    border-right: 1px solid var(--border-color-light); 
+    padding: 15px 0; 
+    background: var(--sidebar-background-light); 
+    flex-shrink: 0;
+    overflow-y: auto; 
+    transition: background-color 0.3s ease, border-color 0.3s ease; 
+}
+:root.dark .settings-sidebar {
+    border-right: 1px solid var(--border-color-dark);
+    background: var(--sidebar-background-dark); 
+}
+
+.settings-sidebar-item {
+    padding: 10px 20px; 
+    cursor: pointer;
+    color: var(--text-primary); 
+    display: flex;
+    align-items: center;
+    gap: 10px; 
+    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease; 
+    border-left: 3px solid transparent; 
+    margin-right: -1px; 
+}
+.settings-sidebar-item svg {
+    width: 16px; 
+    height: 16px;
+    fill: currentColor;
+    opacity: 0.6; 
+    transition: opacity 0.2s ease, fill 0.2s ease; 
+}
+.settings-sidebar-item:hover {
+    background: var(--item-hover-background-light);
+    color: var(--text-primary); 
+}
+.settings-sidebar-item:hover svg {
+    opacity: 0.8;
+}
+.settings-sidebar-item.active {
+    background: var(--accent-color); 
+    color: white; 
+    border-left: 3px solid var(--accent-color); 
+}
+.settings-sidebar-item.active svg {
+    opacity: 1;
+    fill: white;
+}
+.settings-sidebar-item.active::after {
+    content: none;
+}
+
+:root.dark .settings-sidebar-item:hover {
+    background: var(--item-hover-background-dark);
+    color: var(--text-color-dark);
+}
+:root.dark .settings-sidebar-item.active {
+    background: var(--accent-color);
+    color: white;
+}
+:root.dark .settings-sidebar-item.active svg {
+    fill: white;
+}
+
+.settings-content {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+    background-color: var(--background-color-light); 
+    transition: background-color 0.3s ease;
+}
+:root.dark .settings-content {
+    background-color: var(--background-color-dark);
+}
+
+
+.settings-panel {
+    display: none;
+    padding-bottom: 20px;
+}
+.settings-panel.active {
+    display: block;
+}
+
+.settings-panel > h3 { 
+    font-size: 20px; 
+    font-weight: 500;
+    margin: 0 0 24px 0; 
+    color: var(--text-primary); 
+    transition: color 0.3s ease; 
+}
+:root.dark .settings-panel > h3 {
+    color: var(--text-color-dark);
+}
+
+.settings-panel .sub-header {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-top: 20px;
+    margin-bottom: 12px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border-color-light);
+    transition: color 0.3s ease, border-color 0.3s ease; 
+}
+:root.dark .settings-panel .sub-header {
+    color: var(--text-color-dark);
+    border-bottom: 1px solid var(--border-color-dark);
+}
+
+
+.auto-settings-group, .keyword-input-container, .template-interval-setting, .setting-item {
+    margin-bottom: 16px;
+}
+.setting-description {
+    margin: 6px 0 0 0;
+    font-size: 13px; 
+    color: var(--text-secondary); 
+    transition: color 0.3s ease; 
+    line-height: 1.4; 
+}
+
+.template-interval-setting {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.template-interval-setting label {
+    color: var(--text-primary);
+    font-size: 14px;
+    transition: color 0.3s ease; 
+}
+.template-interval-setting input { 
+    width: 70px; 
+    padding: 8px; 
+}
+:root.dark .template-interval-setting label {
+    color: var(--text-color-dark);
+}
+
+
+.color-options-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); 
+    gap: 8px;
+    margin: 15px 0;
+}
+.color-option {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: all 0.2s ease;
+}
+.color-option.active {
+    border-color: var(--accent-color); 
+    transform: scale(1.1);
+}
+:root.dark .color-option.active { 
+    border-color: var(--accent-color); 
+}
+
+
+#backgroundUpload {
+    display: none;
+}
+.remove-bg { 
+    display: none; 
+    margin-left: 10px; 
+}
+.remove-bg.visible {
+    display: inline-block;
+}
+
+.keyword-input-container { 
+    margin-bottom: 20px;
+    display: flex; 
+    gap: 8px;
+}
+.keyword-input-container input,
+.keyword-input-container textarea { 
+    flex-grow: 1; 
+    margin-right: 0; 
+}
+.keyword-input-container button { 
+    flex-shrink: 0; 
+}
+
+
+.keywords-list, .templates-list { 
+    display: flex;
+    flex-direction: column;
+    gap: 8px; 
+}
+.keyword-item, .template-item { 
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px; 
+    background: var(--theme-surface); 
+    border-radius: 6px; 
+    user-select: none; 
+    border: 1px solid var(--border-color-light);
+    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease; 
+}
+:root.dark .keyword-item, :root.dark .template-item {
+    background: var(--theme-surface); 
+    border: 1px solid var(--border-color-dark);
+}
+.keyword-item:hover, .template-item:hover {
+    background-color: var(--item-hover-background-light);
+    border-color: color-mix(in srgb, var(--border-color-light) 80%, black); 
+}
+:root.dark .keyword-item:hover, :root.dark .template-item:hover {
+    background-color: var(--item-hover-background-dark);
+    border-color: color-mix(in srgb, var(--border-color-dark) 80%, white);
+}
+.template-item.dragging {
+  opacity: 0.7;
+  background: var(--accent-color);
+  color: white;
+  border-color: var(--accent-color);
+}
+.templates-list.drag-over { 
+  background: var(--theme-surface-variant); 
+  border: 1px dashed var(--accent-color); 
+  transition: background-color 0.2s ease, border-color 0.2s ease; 
+}
+.compact-mode .keyword-item:hover, .compact-mode .template-item:hover {
+    background-color: var(--item-hover-background-light); 
+}
+:root.dark .compact-mode .keyword-item:hover, :root.dark .compact-mode .template-item:hover {
+    background-color: var(--item-hover-background-dark);
+}
+        
+
+.version-history { 
+    max-height: 400px;
+    overflow-y: auto;
+    padding: 15px; 
+    background: var(--theme-surface); 
+    border-radius: 8px; 
+    margin-top: 20px;
+    border: 1px solid var(--border-color-light);
+    transition: background-color 0.3s ease, border-color 0.3s ease; 
+}
+:root.dark .version-history {
+    background: var(--theme-surface); 
+    border: 1px solid var(--border-color-dark);
+}
+        
+.automation-flow {
+  background: var(--theme-surface); 
+  border-radius: 8px; 
+  padding: 15px; 
+  margin-bottom: 20px;
+  border: 1px solid var(--border-color-light);
+  transition: background-color 0.3s ease, border-color 0.3s ease; 
+}
+:root.dark .automation-flow {
+  background: var(--theme-surface); 
+  border: 1px solid var(--border-color-dark);
+}
+.automation-step {
+  margin-bottom: 15px; 
+}
+.automation-step:last-child {
+  margin-bottom: 0;
+}
+.automation-step h4 {
+  color: var(--text-primary); 
+  margin: 0 0 8px 0; 
+  font-size: 14px;
+  font-weight: 500;
+  transition: color 0.3s ease; 
+}
+.dependent-setting {
+  position: relative;
+  padding-left: 15px; 
+}
+.dependent-setting:before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 5px; 
+  bottom: 5px;   
+  width: 2px;
+  background: var(--accent-color); 
+  transition: background-color 0.3s ease; 
+}
+
+/* Styles for the edit popup (dynamically created by JS) */
+.edit-popup {
+    display: none; 
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--container-background-light); 
+    padding: 20px;
+    border-radius: 12px; 
+    box-shadow: 0 8px 24px var(--shadow-color); 
+    z-index: 1002; 
+    min-width: 350px; 
+    border: 1px solid var(--border-color-light);
+    transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease; 
+}
+:root.dark .edit-popup {
+    background: var(--container-background-dark); 
+    border: 1px solid var(--border-color-dark);
+}
+.edit-popup.open {
+    display: block;
+}
+.edit-popup textarea { 
+    width: 100%;
+    min-height: 100px;
+    margin: 10px 0 15px 0; 
+}
+.edit-popup .button-row {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+.edit-popup h3 {
+    margin: 0 0 15px 0; 
+    color: var(--text-primary); 
+    font-size: 16px; 
+    font-weight: 500;
+    transition: color 0.3s ease; 
+}
+
+.template-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-grow: 1; 
+    padding-right: 10px; 
+    color: var(--text-primary); 
+    transition: color 0.3s ease;
+}
+:root.dark .template-text {
+    color: var(--text-color-dark);
+}
+
+
+.color-picker-wrapper .color-option {
+    position: relative; 
+    border: 1px solid var(--border-color-light) !important; 
+    transition: border-color 0.3s ease; 
+}
+:root.dark .color-picker-wrapper .color-option {
+    border: 1px solid var(--border-color-dark) !important;
+}
+.color-picker-wrapper svg {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 20px; 
+    height: 20px; 
+    fill: var(--text-primary); 
+    transition: fill 0.3s ease; 
+}
+:root.dark .color-picker-wrapper svg {
+    fill: var(--text-color-dark);
+}
+#customColorPicker { 
+    opacity: 0;
+    width: 0;
+    height: 0;
+    position: absolute;
+}
+
+.settings-sidebar .sidebar-title { 
+    color: var(--text-primary);
+    margin: 0 15px 15px 15px; 
+    padding-bottom: 10px; 
+    border-bottom: 1px solid var(--border-color-light); 
+    font-size: 16px; 
+    font-weight: 500;
+    transition: color 0.3s ease, border-color 0.3s ease; 
+}
+:root.dark .settings-sidebar .sidebar-title {
+    color: var(--text-color-dark);
+    border-bottom: 1px solid var(--border-color-dark);
+}
+
+
+.templates-container h4 { 
+    color: var(--text-primary);
+    margin: 20px 0 10px 0; 
+    font-size: 13px; 
+    font-weight: 500;
+    text-transform: uppercase; 
+    opacity: 0.7; 
+    transition: color 0.3s ease; 
+}
+:root.dark .templates-container h4 {
+    color: var(--text-color-dark);
+}
+
+/* About page specific styles */
+#about h2 { 
+    /* Covered by .settings-panel > h3 */
+}
+#about .developer p {
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+    font-size: 14px;
+    transition: color 0.3s ease; 
+}
+#about .check-update-btn {
+    margin-bottom: 20px;
+}
+#about .version-history h3 { 
+    font-size: 16px;
+    color: var(--text-primary);
+    margin-bottom: 15px; 
+    transition: color 0.3s ease; 
+}
+#about .version {
+    margin-bottom: 15px;
+}
+#about .version h4 { 
+    font-size: 14px;
+    color: var(--accent-color); 
+    margin-bottom: 8px; 
+}
+#about .version ul {
+    list-style-type: disc; 
+    padding-left: 20px; 
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px; 
+    transition: color 0.3s ease; 
+}
+#about .version ul li {
+    margin-bottom: 6px; 
+    line-height: 1.5; 
+}
+
+#themeToggle {
+    min-width: 120px; 
+    text-align: center;
+}
+
+input[type="color"] {
+    border: 1px solid var(--border-color-light);
+    border-radius: 4px;
+    padding: 2px; 
+    transition: border-color 0.3s ease, background-color 0.3s ease; 
+}
+:root.dark input[type="color"] {
+    border: 1px solid var(--border-color-dark);
+    background-color: var(--container-background-dark); 
+}
+input[type="color"]::-webkit-color-swatch-wrapper {
+    padding: 0;
+}
+input[type="color"]::-webkit-color-swatch {
+    border: none; 
+    border-radius: 3px;
+}
+
+label { 
+    color: var(--text-primary);
+    font-size: 14px;
+    margin-bottom: 4px; 
+    display: inline-block; 
+    transition: color 0.3s ease;
+}
+:root.dark label {
+    color: var(--text-color-dark);
+}
+
+
+/* Responsive Styles */
+
+/* Tablet - (max-width: 900px) */
+@media (max-width: 900px) {
+    body {
+        padding: 15px;
+    }
+    .container {
+        padding: 15px;
+        margin: 10px auto;
+        height: auto;
+        min-height: calc(100vh - 30px); 
+    }
+    #output {
+        min-height: 250px; 
+        height: auto; 
+        max-height: 40vh; 
+    }
+    .settings-popup {
+        width: 90vw;
+        height: auto; 
+        max-height: 85vh; 
+        overflow: hidden; 
+    }
+    .settings-popup.open {
+        display: flex; 
+        flex-direction: column;
+    }
+    .settings-body { 
+        overflow-y: auto;
+    }
+}
+
+/* Mobile - (max-width: 600px) */
+@media (max-width: 600px) {
+    body {
+        padding: 10px;
+        font-size: 15px; 
+    }
+    .container {
+        padding: 10px;
+        margin: 5px auto; 
+        height: auto;
+        min-height: calc(100vh - 10px); 
+        border-radius: 0; 
+        border-left: none;
+        border-right: none;
+    }
+    .header-section {
+        margin-bottom: 10px;
+        flex-wrap: wrap; 
+    }
+    .header-section h1 {
+        font-size: 20px; 
+        line-height: 28px;
+        margin-bottom: 5px; 
+    }
+    .button-group {
+        flex-direction: column;
+        align-items: stretch; 
+        gap: 5px; 
+    }
+    .button-group .left-buttons,
+    .button-group .right-buttons {
+        width: 100%;
+        flex-direction: column; 
+        gap: 5px;
+    }
+    .button-group button {
+        width: 100%; 
+        margin: 5px 0; 
+        padding: 10px 12px; 
+    }
+    textarea#shipmentInput {
+        height: 120px; 
+    }
+    #output {
+        min-height: 150px;
+        height: auto; 
+        max-height: 35vh; 
+    }
+
+    .settings-popup {
+        width: calc(100% - 10px); 
+        height: calc(100% - 10px); 
+        max-height: none;
+        margin: 5px;
+        top: 5px;
+        left: 5px;
+        transform: none;
+        border-radius: 8px; 
+    }
+    .settings-popup .settings-header {
+        padding: 10px 12px; 
+    }
+    .settings-popup .settings-header h2 {
+        font-size: 16px;
+    }
+    .settings-body {
+        flex-direction: column; 
+    }
+    .settings-sidebar {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color-light);
+        padding: 10px 0;
+        max-height: 35vh; 
+        overflow-y: auto;
+        flex-shrink: 0; 
+    }
+    :root.dark .settings-sidebar {
+        border-bottom: 1px solid var(--border-color-dark);
+    }
+    .settings-sidebar-item {
+        padding: 10px 15px; 
+        border-left-width: 2px; 
+    }
+    .settings-sidebar-item svg {
+        width: 16px;
+        height: 16px;
+    }
+    .settings-content {
+        padding: 15px; 
+        flex-grow: 1; 
+    }
+    .settings-panel > h3 {
+        font-size: 18px;
+        margin-bottom: 15px;
+    }
+    .keyword-input-container {
+        flex-direction: column; 
+        gap: 10px;
+    }
+    .keyword-input-container input,
+    .keyword-input-container textarea,
+    .keyword-input-container button {
+        width: 100%;
+        margin-right: 0;
+    }
+    .edit-popup { 
+        width: 90vw;
+        max-width: 400px; 
+    }
+    .edit-popup textarea {
+        min-height: 80px;
+    }
+}
+
+/* Compact Mode Styles */
+.compact-mode {
+    /* General reductions */
+    --base-padding-compact: 10px;
+    --base-margin-compact: 5px;
+    --font-size-compact-base: 13px;
+    --font-size-compact-small: 12px;
+    --font-size-compact-h1: 20px;
+    --font-size-compact-h3: 16px;
+    --button-padding-compact: 5px 10px;
+    --icon-button-padding-compact: 5px;
+    --gap-compact: 5px;
+
+    font-size: var(--font-size-compact-base);
+    padding: var(--base-padding-compact);
+}
+
+.compact-mode .container {
+    padding: var(--base-padding-compact);
+    margin: var(--base-margin-compact) auto;
+    border-radius: 8px; 
+}
+
+.compact-mode .header-section {
+    margin-bottom: var(--base-margin-compact);
+}
+.compact-mode .header-section h1 {
+    font-size: var(--font-size-compact-h1);
+    line-height: 1.3;
+}
+.compact-mode .header-buttons {
+    gap: var(--gap-compact);
+}
+
+.compact-mode button, 
+.compact-mode .upload-label {
+    padding: var(--button-padding-compact);
+    font-size: var(--font-size-compact-small);
+    margin: var(--gap-compact); 
+    border-radius: 4px; 
+}
+.compact-mode button svg, 
+.compact-mode .upload-label svg {
+    width: 14px;
+    height: 14px;
+    margin-left: 5px;
+}
+.compact-mode .settings-button,
+.compact-mode .item-actions button,
+.compact-mode .settings-popup .settings-header button,
+.compact-mode .settings-sidebar h2 button {
+    padding: var(--icon-button-padding-compact);
+    width: 32px; 
+    height: 32px;
+}
+.compact-mode .settings-button svg,
+.compact-mode .item-actions svg,
+.compact-mode .settings-popup .settings-header button svg,
+.compact-mode .settings-sidebar h2 button svg {
+    width: 16px; 
+    height: 16px;
+}
+
+
+.compact-mode textarea#shipmentInput {
+    height: 150px; 
+    padding: var(--base-padding-compact);
+    font-size: var(--font-size-compact-small);
+}
+.compact-mode #output {
+    padding: var(--base-padding-compact);
+    font-size: var(--font-size-compact-small);
+}
+.compact-mode .settings-content input[type="text"], 
+.compact-mode .settings-content input[type="number"], 
+.compact-mode .settings-content textarea {
+    padding: var(--base-padding-compact);
+    font-size: var(--font-size-compact-small);
+}
+.compact-mode .settings-content textarea {
+    min-height: 60px;
+}
+
+
+.compact-mode .button-group {
+    gap: var(--gap-compact);
+}
+.compact-mode .left-buttons, 
+.compact-mode .right-buttons {
+    gap: var(--gap-compact);
+}
+
+.compact-mode #templateCount {
+    font-size: var(--font-size-compact-small);
+}
+
+/* Settings Popup in Compact Mode */
+.compact-mode .settings-popup {
+    border-radius: 10px; 
+}
+.compact-mode .settings-popup .settings-header {
+    padding: 8px 12px;
+}
+.compact-mode .settings-popup .settings-header h2 {
+    font-size: 15px;
+}
+.compact-mode .settings-popup .settings-header button svg {
+    width: 14px;
+    height: 14px;
+}
+
+.compact-mode .settings-sidebar {
+    width: 180px; 
+    padding: 10px 0;
+}
+.compact-mode .settings-sidebar-item {
+    padding: 8px 15px;
+    gap: 10px;
+}
+.compact-mode .settings-sidebar-item svg {
+    width: 15px;
+    height: 15px;
+}
+.compact-mode .settings-sidebar .sidebar-title {
+    font-size: 14px;
+    margin: 0 10px 10px 10px;
+    padding-bottom: 8px;
+}
+
+.compact-mode .settings-content {
+    padding: 15px;
+}
+.compact-mode .settings-panel > h3 {
+    font-size: var(--font-size-compact-h3);
+    margin-bottom: 15px;
+}
+.compact-mode .settings-panel .sub-header {
+    font-size: 14px;
+    margin-bottom: 10px;
+}
+
+.compact-mode .auto-settings-group, 
+.compact-mode .keyword-input-container, 
+.compact-mode .template-interval-setting, 
+.compact-mode .setting-item {
+    margin-bottom: 12px;
+}
+.compact-mode .setting-description {
+    font-size: 12px;
+    margin-top: 4px;
+}
+.compact-mode .template-interval-setting label {
+    font-size: var(--font-size-compact-small);
+}
+.compact-mode .template-interval-setting input {
+    padding: 5px;
+    width: 60px;
+}
+
+
+.compact-mode .keyword-item, 
+.compact-mode .template-item {
+    padding: 8px 10px;
+    font-size: var(--font-size-compact-small);
+}
+.compact-mode .template-text {
+    font-size: var(--font-size-compact-small);
+}
+.compact-mode .keywords-list, 
+.compact-mode .templates-list {
+    gap: 5px;
+}
+
+.compact-mode .edit-popup {
+    padding: 15px;
+    min-width: 320px;
+}
+.compact-mode .edit-popup h3 {
+    font-size: 15px;
+    margin-bottom: 10px;
+}
+.compact-mode .edit-popup textarea {
+    min-height: 80px;
+    font-size: var(--font-size-compact-small);
+}
+
+.compact-mode #themeToggle {
+    min-width: 110px;
+    font-size: var(--font-size-compact-small);
+}
+
+/* Ensure compact mode styles apply correctly in mobile view */
+@media (max-width: 600px) {
+    .compact-mode .header-section h1 {
+        font-size: 18px; 
+        line-height: 1.3;
+    }
+    .compact-mode .button-group button {
+        padding: 8px 10px; 
+    }
+    .compact-mode textarea#shipmentInput {
+        height: 100px;
+    }
+     .compact-mode #output {
+        min-height: 120px;
+        max-height: 30vh;
+    }
+    .compact-mode .settings-sidebar {
+        max-height: 30vh; 
+    }
+}
+
+[end of style.css]
+
+[end of style.css]
+
+[end of style.css]
